@@ -9,10 +9,7 @@ import { City } from '../world/city.js';
 import { Input } from '../core/input.js';
 import { Loop, FIXED_DT } from '../core/loop.js';
 import { Events } from '../core/events.js';
-// TEMP until the audio engine lands: optional import with a silent fallback
-const audioMods = import.meta.glob('../core/audio.js', { eager: true });
-class SilentAudio { unlock() {} get ready() { return false; } setListener() {} play() { return null; } loop() { return { setVolume() {}, setPos() {}, setPitch() {}, stop() {} }; } setMusic() {} setVolumes() {} setPaused() {} }
-const AudioEngine = audioMods['../core/audio.js']?.AudioEngine || SilentAudio;
+import { AudioEngine } from '../core/audio.js';
 import { ThirdPersonCamera } from './camera.js';
 import { Player } from '../entities/player.js';
 import { installCombat, PLAYER_CLIPS } from '../entities/playerCombat.js';

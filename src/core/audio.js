@@ -140,35 +140,28 @@ function makeNoise(ctx, kind, seconds) {
   return b;
 }
 
-/** Generated stereo impulse for a ~2 s dark stone hall (early reflections + darkening tail). */
-function makeImpulse(ctx, secs = 2.3) {
-  const sr = ctx.sampleRate, n = Math.floor(sr * secs), pre = Math.floor(sr * 0.014);
-  const b = makeBuffer(ctx, 2, n, sr);
-  const m = n - pre, block = 64;
-  let energy = 0;
-  for (let ch = 0; ch < 2; ch++) {
-    const d = b.getChannelData(ch);
-    let lp = 0, lp2 = 0;
-    for (let i0 = 0; i0 < m; i0 += block) {
-      const t = i0 / m;
-      // envelope and darkening low-pass are updated per 64-sample block (cheap)
-      const env = Math.pow(1 - t, 1.6) * Math.exp(-t * 3.2) * (1 + 2.5 * t);
-      const a = Math.exp((-2 * Math.PI * 6500 * Math.pow(0.07, t)) / sr), ia = 1 - a;
-      const end = Math.min(m, i0 + block);
-      for (let i = i0; i < end; i++) {
-        lp = lp * a + (Math.random() * 2 - 1) * ia;
-        lp2 = lp2 * a + lp * ia;
-        d[pre + i] = lp2 * env;
-      }
+/**
+ * One channel of a generated ~2.3 s dark stone-hall impulse: sparse early reflections and a
+ * noise tail whose low-pass closes as it decays. Returns the channel energy.
+ */
+function fillImpulse(d, sr) {
+  const n = d.length, pre = Math.floor(sr * 0.014), m = n - pre, block = 64;
+  let lp = 0, lp2 = 0, energy = 0;
+  for (let i0 = 0; i0 < m; i0 += block) {
+    const t = i0 / m;
+    // envelope and darkening filter are updated per 64-sample block (cheap)
+    const env = Math.pow(1 - t, 1.6) * Math.exp(-t * 3.2) * (1 + 2.5 * t);
+    const a = Math.exp((-2 * Math.PI * 6500 * Math.pow(0.07, t)) / sr), ia = 1 - a;
+    const end = Math.min(m, i0 + block);
+    for (let i = i0; i < end; i++) {
+      lp = lp * a + (Math.random() * 2 - 1) * ia;
+      lp2 = lp2 * a + lp * ia;
+      d[pre + i] = lp2 * env;
     }
-    for (let r = 0; r < 9; r++) { // sparse early reflections off stone walls
-      d[pre + Math.floor(sr * rand(0.004, 0.075))] += rand(-1, 1) * 0.35 * (1 - r / 12);
-    }
-    for (let i = 0; i < n; i++) energy += d[i] * d[i];
   }
-  const s = 1.2 / Math.sqrt(energy / 2 || 1);
-  for (let ch = 0; ch < 2; ch++) { const d = b.getChannelData(ch); for (let i = 0; i < n; i++) d[i] *= s; }
-  return b;
+  for (let r = 0; r < 9; r++) d[pre + Math.floor(sr * rand(0.004, 0.075))] += rand(-1, 1) * 0.35 * (1 - r / 12);
+  for (let i = 0; i < n; i++) energy += d[i] * d[i];
+  return energy;
 }
 
 /** Scale an array so its absolute peak equals `peak`. */
@@ -1815,7 +1808,14 @@ export class AudioEngine {
     let c;
     try { c = new AudioCtx({ latencyHint: 'interactive' }); } catch (e) { c = new AudioCtx(); }
     this.ctx = c;
-    this.res = { noise: { white: makeNoise(c, 'white', 1.5), pink: makeNoise(c, 'pink', 2), brown: makeNoise(c, 'brown', 2) } };
+    // Shared seamless noise buffers: generated on first use, and warmed one per task
+    // right after unlock so unlock() itself stays short.
+    this.res = { noise: {} };
+    [['white', 1.5], ['pink', 2], ['brown', 2]].forEach(([kind, secs], i) => {
+      let buf = null;
+      Object.defineProperty(this.res.noise, kind, { enumerable: true, get: () => buf || (buf = makeNoise(c, kind, secs)) });
+      setTimeout(() => { try { void this.res.noise[kind]; } catch (e) { /* ignore */ } }, 1 + i * 6);
+    });
 
     // master: compressor (glue) -> limiter (safety) -> master volume
     this.masterGain = c.createGain();
@@ -1836,7 +1836,7 @@ export class AudioEngine {
     // shared reverb (generated dark hall impulse; built in a later task to keep unlock() short)
     this.reverb = c.createConvolver();
     this.reverb.normalize = false;
-    setTimeout(() => { try { this.reverb.buffer = makeImpulse(c); } catch (e) { this._warnOnce('reverb', e); } }, 40);
+    this._buildReverb();
     const revHp = c.createBiquadFilter();
     revHp.type = 'highpass';
     revHp.frequency.value = 140;
@@ -1881,6 +1881,20 @@ export class AudioEngine {
     set(this.pauseFilter.frequency, p ? 900 : 20000, 0.12);
   }
 
+  /** Generate the reverb impulse in small tasks (one per channel) so unlock() stays short. */
+  _buildReverb() {
+    const c = this.ctx, b = makeBuffer(c, 2, Math.floor(c.sampleRate * 2.3), c.sampleRate);
+    let energy = 0, ch = 0;
+    const step = () => {
+      try {
+        if (ch < 2) { energy += fillImpulse(b.getChannelData(ch++), b.sampleRate); setTimeout(step, 15); return; }
+        const k = 1.2 / Math.sqrt(energy / 2 || 1);
+        for (let i = 0; i < 2; i++) { const d = b.getChannelData(i); for (let j = 0; j < d.length; j++) d[j] *= k; }
+        this.reverb.buffer = b;
+      } catch (e) { this._warnOnce('reverb', e); }
+    };
+    setTimeout(step, 30);
+  }
   _fail(e) {
     this._failed = true;
     this._warnOnce('init', e);

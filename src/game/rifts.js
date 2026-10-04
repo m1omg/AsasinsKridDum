@@ -119,7 +119,7 @@ export class RiftVisual {
         const a = Math.random() * Math.PI * 2;
         this.game.fx.add.emit(this.rift.x + Math.cos(a) * 3.5, 0.5, this.rift.z + Math.sin(a) * 3.5, -Math.cos(a) * 0.8, 2.5 + Math.random() * 2, -Math.sin(a) * 0.8, 1.6, 0.12, 0.03, [3, 0.8, 0.2, 1], [1, 0.1, 0, 0], -0.2, 0.3);
       }
-      if (!this.hum && dist < 45) this.hum = this.game.audio?.loop('riftHum', { pos: { x: this.rift.x, y: 4, z: this.rift.z }, volume: 0.8 });
+      if (!this.hum && dist < 45 && this.game.audio?.ready) this.hum = this.game.audio.loop('riftHum', { pos: { x: this.rift.x, y: 4, z: this.rift.z }, volume: 0.8 });
       else if (this.hum && dist > 55) { this.hum.stop?.(1); this.hum = null; }
     }
     if (this.closing > 0) {
