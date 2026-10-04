@@ -1,0 +1,788 @@
+import * as THREE from 'three';
+import { SIGILS } from '../entities/playerCombat.js';
+import { TITLE_URL } from '../render/textures.js';
+import { clamp } from '../core/math.js';
+
+// DOM HUD + menus. HUD values update every rendered frame (cheap writes only
+// when values change); markers are pooled absolutely-positioned elements.
+
+const ICONS = {
+  pyre: '<svg viewBox="0 0 24 24"><path fill="#ff8a3a" d="M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-5 3-6 0 3 1 4 2 4 0-4-1-6 1-10z"/></svg>',
+  gust: '<svg viewBox="0 0 24 24" fill="none" stroke="#a8d4ff" stroke-width="2.2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3"/><path d="M3 13h16a3 3 0 1 1-3 3"/><path d="M3 18h8"/></svg>',
+  aegis: '<svg viewBox="0 0 24 24"><path fill="none" stroke="#ffd36a" stroke-width="2.2" d="M12 2l8 4.5v11L12 22l-8-4.5v-11z"/><circle cx="12" cy="12" r="3" fill="#ffd36a"/></svg>',
+  snare: '<svg viewBox="0 0 24 24" fill="none" stroke="#c78bff" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 5l6 11H6z"/></svg>',
+  hex: '<svg viewBox="0 0 24 24" fill="none" stroke="#7dffb0" stroke-width="2"><path d="M12 4c5 0 8 4 8 8s-3 6-6 6-5-2-5-5 2-4 4-4 3 1 3 3"/></svg>',
+  knife: '<svg viewBox="0 0 24 24"><path fill="#dfe6ee" d="M20 3l-9 9 1.5 1.5L21.5 4.5z"/><path fill="#8a6a40" d="M10 12.5l1.5 1.5-5 5-1.5-1.5z"/><path fill="#d8a446" d="M8.5 11l4.5 4.5-1 1L7.5 12z"/></svg>',
+  tonic: '<svg viewBox="0 0 24 24"><path fill="#8a1a14" d="M9 9h6l3 8a3 3 0 0 1-3 4H9a3 3 0 0 1-3-4z"/><path fill="#d8c8a8" d="M10 3h4v6h-4z"/><path fill="#ff4a3a" d="M8 14h8l1.4 3.5A2 2 0 0 1 15.5 20h-7a2 2 0 0 1-1.9-2.5z"/></svg>',
+};
+
+const EMBLEM = `<svg viewBox="0 0 100 100">
+  <defs><radialGradient id="em" cx="50%" cy="45%" r="55%"><stop offset="0" stop-color="#3a1408"/><stop offset="1" stop-color="#0c0503"/></radialGradient>
+  <linearGradient id="eg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe7a8"/><stop offset="0.6" stop-color="#d8a446"/><stop offset="1" stop-color="#7a3a10"/></linearGradient></defs>
+  <circle cx="50" cy="50" r="46" fill="url(#em)" stroke="url(#eg)" stroke-width="4"/>
+  <circle cx="50" cy="50" r="38" fill="none" stroke="#d8a44655" stroke-width="1.5"/>
+  <path d="M50 16 L68 62 Q50 54 32 62 Z" fill="url(#eg)"/>
+  <path d="M50 30 L60 58 Q50 53 40 58 Z" fill="#1a0a05"/>
+  <path d="M50 40c4 6 4 10 0 14-4-4-4-8 0-14z" fill="#ff5a1a"/>
+  <path d="M26 70 Q50 82 74 70" stroke="url(#eg)" stroke-width="4" fill="none" stroke-linecap="round"/>
+</svg>`;
+
+const UPGRADES = [
+  { id: 'vitality', name: 'Vitality', desc: '+30 maximum health.', costs: [1, 2, 2] },
+  { id: 'blade', name: 'Ashen Blade', desc: '+18% sword damage.', costs: [1, 2, 2] },
+  { id: 'vigor', name: 'Vigor', desc: '+30 stamina and faster recovery for Sigils.', costs: [1, 2] },
+  { id: 'sigils', name: 'Sigil Mastery', desc: 'Sigils are 30% more potent.', costs: [1, 2] },
+  { id: 'quiver', name: 'Bandolier', desc: 'Carry 3 more throwing knives.', costs: [1, 1] },
+  { id: 'tonic', name: 'Alchemist', desc: 'Carry one more Blood Tonic.', costs: [1, 2] },
+  { id: 'shadow', name: 'Shadow of the Creed', desc: 'Demons notice you 20% slower.', costs: [1, 2] },
+];
+export { UPGRADES };
+
+const CONTROLS = [
+  ['Move', 'W A S D', 'Left stick'],
+  ['Camera', 'Mouse', 'Right stick'],
+  ['Sprint / free-run (auto leaps)', 'Shift (hold)', 'RT'],
+  ['Jump / climb / ledge leap', 'Space', 'A'],
+  ['Roll (sword drawn, near demons)', 'Space', 'A'],
+  ['Sneak', 'C', 'L3'],
+  ['Fast attack (combo)', 'Left mouse', 'X'],
+  ['Strong attack (hold = Rend)', 'R  or  Shift + Left mouse', 'Y'],
+  ['Block (hold) / Parry (time it)', 'Right mouse', 'LT'],
+  ['Dodge', 'E', 'B'],
+  ['Cast Sigil', 'Q', 'RB'],
+  ['Select Sigil', '1-5 / Mouse wheel', 'D-pad left/right'],
+  ['Assassinate / Glory Kill / Interact', 'F', 'LB'],
+  ['Throwing knife', 'G', 'D-pad up'],
+  ['Blood Tonic (heal)', 'H', 'D-pad down'],
+  ['Lock on target', 'Middle mouse / Z', 'R3'],
+  ['Ashen Sight (see demons through walls)', 'V', 'View / Back'],
+  ['Map', 'M / Tab', 'Pause menu'],
+  ['Pause', 'Esc / P', 'Start'],
+];
+
+const el = (html) => {
+  const t = document.createElement('template');
+  t.innerHTML = html.trim();
+  return t.content.firstChild;
+};
+
+export class UI {
+  constructor(game, root) {
+    this.game = game;
+    this.root = root;
+    this.cache = {};
+    this.markers = [];
+    this.edges = [];
+    this.dmgs = [];
+    this.notes = [];
+    this.screen = null;
+    this.focusIdx = 0;
+    root.innerHTML = this.template();
+    this.$ = (s) => root.querySelector(s);
+    this.buildHud();
+    this.bindMenus();
+    this.embers();
+    this.lastMinimap = 0;
+  }
+
+  template() {
+    const sig = SIGILS.map((s, i) => `<div class="sigil" data-i="${i}">${ICONS[s.id]}<span class="k">${i + 1}</span></div>`).join('');
+    return `
+<div id="hud">
+  <div class="hud-tl">
+    <div class="medallion">${EMBLEM}</div>
+    <div>
+      <div class="bars">
+        <div class="bar hp"><div class="lag"></div><div class="fill"></div><div class="armor"></div></div>
+        <div class="bar st"><div class="fill"></div></div>
+        <div class="fury"><i></i><i></i><i></i></div>
+      </div>
+      <div class="sigils">${sig}</div>
+      <div class="sigil-name"></div>
+    </div>
+  </div>
+  <div class="hud-tr">
+    <div class="minimap-wrap"><canvas class="minimap" width="190" height="190"></canvas><div class="minimap-n">N</div></div>
+    <div class="status anon">Anonymous</div>
+    <div class="objective"><div class="title">Objective</div><div class="text"></div><div class="sub"></div></div>
+  </div>
+  <div class="hud-br">
+    <div class="item knives">${ICONS.knife}<span class="n">5</span><span class="k">G</span></div>
+    <div class="item tonics">${ICONS.tonic}<span class="n">3</span><span class="k">H</span></div>
+  </div>
+  <div class="hint"></div>
+  <div class="prompt"><span class="key">F</span><span class="label"></span></div>
+  <div class="notify"></div>
+  <div class="banner"><div class="big"></div><div class="line"></div><div class="small"></div></div>
+  <div class="bossbar"><div class="name"></div><div class="bar"><div class="fill"></div></div></div>
+  <div class="markers"></div>
+  <div class="wave"></div>
+  <div class="vignette-sight"></div>
+  <div class="center-dot"></div>
+  <div class="fps"></div>
+  <div class="lockhint clickable">Click to play<small>Mouse look needs the pointer captured. If nothing happens, open the game in its own tab.</small></div>
+</div>
+
+<div class="screen" id="screen-loading"><div class="logo">HELLCREED</div><div class="loadbar"><i></i></div><div class="loadtext">Summoning the city of Vellano…</div></div>
+
+<div class="screen" id="screen-title">
+  <div class="art" style="background-image:url('${TITLE_URL}')"></div>
+  <div class="shade"></div>
+  <div class="embers"></div>
+  <div class="content">
+    <div><div class="logo">HELLCREED</div><div class="tagline">The Burning of Vellano, 1499</div></div>
+    <div class="menu">
+      <button class="btn" data-act="continue">Continue</button>
+      <button class="btn" data-act="new">New Game</button>
+      <button class="btn" data-act="controls">Controls</button>
+      <button class="btn" data-act="settings">Settings</button>
+    </div>
+  </div>
+  <div class="credit">Textures, sky &amp; key art generated with Higgsfield · Built with Three.js</div>
+</div>
+
+<div class="screen dim" id="screen-intro"><div class="panel">
+  <h2>Vellano, 1499</h2><div class="sep"></div>
+  <p>The sky over Vellano tore open on the Feast of Ashes. From the wound poured the damned: thralls that once were neighbours, imps that crawl the walls, hounds, gazers and brutes, and above the cathedral, their shepherd, the Cardinal of Ash.</p>
+  <p>The Brotherhood of the Ashen Creed is all that remains. You are its last blade.</p>
+  <p><i>Climb the towers to read the city. Hunt from the rooftops. Close the three Hell Rifts. Then end the Cardinal.</i></p>
+  <div class="sep"></div>
+  <button class="btn" data-act="begin">Begin</button>
+</div></div>
+
+<div class="screen dim" id="screen-pause"><div class="panel" style="text-align:center">
+  <h2>Paused</h2><div class="sep"></div>
+  <div class="menu" style="margin:0 auto">
+    <button class="btn" data-act="resume">Resume</button>
+    <button class="btn" data-act="map">Map</button>
+    <button class="btn" data-act="upgrades">The Creed (Upgrades)</button>
+    <button class="btn" data-act="controls">Controls</button>
+    <button class="btn" data-act="settings">Settings</button>
+    <button class="btn" data-act="title">Quit to Title</button>
+  </div>
+</div></div>
+
+<div class="screen dim" id="screen-map"><div class="panel map-wrap">
+  <h2>Vellano</h2>
+  <canvas id="bigmap" width="720" height="720"></canvas>
+  <div class="legend">
+    <span><i style="background:#f4cf7a"></i>You</span><span><i style="background:#e8c060"></i>Viewpoint (synced)</span><span><i style="background:#8a7a60"></i>Viewpoint</span>
+    <span><i style="background:#ff3a1a"></i>Hell Rift</span><span><i style="background:#c9a040"></i>Chest (revealed)</span><span><i style="background:#ff5a4a"></i>Demons hunting you</span>
+  </div>
+  <div class="sep"></div><button class="btn small" data-act="back">Back</button>
+</div></div>
+
+<div class="screen dim" id="screen-upgrades"><div class="panel" style="width:640px">
+  <h2>The Creed</h2>
+  <p>Spend <b>Ashen Runes</b> found in chests, at viewpoints, in relic caches and in cleansed rifts.</p>
+  <div class="runes"></div>
+  <div class="upg-list"></div>
+  <div class="sep"></div><button class="btn small" data-act="back">Back</button>
+</div></div>
+
+<div class="screen dim" id="screen-controls"><div class="panel" style="width:760px">
+  <h2>Controls</h2><div class="sep"></div>
+  <div class="grid2"><span class="h">Action</span><span class="h">Keyboard &amp; mouse</span><span class="h pad">Gamepad</span>
+  ${CONTROLS.map(([a, k, p]) => `<span>${a}</span><span class="k">${k}</span><span class="k pad">${p}</span>`).join('')}</div>
+  <h3>How to play</h3>
+  <p>Hold <b>Shift</b> and run at a wall to climb it; at a ledge press <b>W</b> or <b>Space</b> to pull up. Sprint off a roof edge to leap to the next rooftop automatically. Land in hay to break a fall and hide.</p>
+  <p>Demons that spot you fill a meter above their heads: yellow means suspicious, red means you've been seen. Sneak (<b>C</b>), stay above their line of sight and strike unaware demons with <b>F</b> for an instant assassination, even from above or from inside a hay cart.</p>
+  <p>In open combat, demons flash <span style="color:#ffd35a">yellow</span> before a parryable strike: tap block just before it lands to parry and counter. <span style="color:#ff5a4a">Red</span> attacks can't be blocked, so dodge or roll. Badly wounded demons stagger and glow: press <b>F</b> for a Glory Kill that showers health. Burning demons drop armor; assassinations drop knives.</p>
+  <div class="sep"></div><button class="btn small" data-act="back">Back</button>
+</div></div>
+
+<div class="screen dim" id="screen-settings"><div class="panel" style="width:640px">
+  <h2>Settings</h2><div class="sep"></div>
+  <div class="settings-row"><span>Mouse sensitivity</span><input type="range" min="0.2" max="3" step="0.05" data-set="sens"><span class="v" data-v="sens"></span></div>
+  <div class="settings-row"><span>Invert camera Y</span><select data-set="invertY"><option value="0">Off</option><option value="1">On</option></select><span></span></div>
+  <div class="settings-row"><span>Field of view</span><input type="range" min="55" max="85" step="1" data-set="fov"><span class="v" data-v="fov"></span></div>
+  <div class="settings-row"><span>Master volume</span><input type="range" min="0" max="1" step="0.05" data-set="master"><span class="v" data-v="master"></span></div>
+  <div class="settings-row"><span>Music volume</span><input type="range" min="0" max="1" step="0.05" data-set="music"><span class="v" data-v="music"></span></div>
+  <div class="settings-row"><span>Effects volume</span><input type="range" min="0" max="1" step="0.05" data-set="sfx"><span class="v" data-v="sfx"></span></div>
+  <div class="settings-row"><span>Graphics quality</span><select data-set="quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><span></span></div>
+  <div class="settings-row"><span>Difficulty</span><select data-set="difficulty"><option value="easy">Pilgrim (easy)</option><option value="normal">Assassin (normal)</option><option value="hard">Slayer (hard)</option></select><span></span></div>
+  <div class="settings-row"><span>Camera shake</span><select data-set="shake"><option value="1">On</option><option value="0">Off</option></select><span></span></div>
+  <div class="settings-row"><span>Damage numbers</span><select data-set="dmgNumbers"><option value="1">On</option><option value="0">Off</option></select><span></span></div>
+  <div class="settings-row"><span>Show FPS</span><select data-set="fps"><option value="0">Off</option><option value="1">On</option></select><span></span></div>
+  <div class="sep"></div><button class="btn small" data-act="back">Back</button>
+</div></div>
+
+<div class="screen" id="screen-death"><div class="death-title">SLAIN</div><p>The Creed endures. Rise again…</p><button class="btn" data-act="respawn">Rise</button></div>
+
+<div class="screen dim" id="screen-victory"><div class="panel" style="text-align:center;width:560px">
+  <h2>Vellano is Free</h2><div class="sep"></div>
+  <p>The Cardinal of Ash is unmade and the wound in the sky closes. Somewhere a bell rings, the first in a year.</p>
+  <div class="stats"></div>
+  <div class="menu" style="margin:0 auto"><button class="btn" data-act="freeroam">Keep exploring</button><button class="btn" data-act="title">Title screen</button></div>
+</div></div>`;
+  }
+
+  // ------------------------------------------------------------ HUD refs
+  buildHud() {
+    const $ = this.$;
+    this.h = {
+      hud: $('#hud'),
+      hpFill: $('.bar.hp .fill'), hpLag: $('.bar.hp .lag'), hpArmor: $('.bar.hp .armor'), hpBar: $('.bar.hp'),
+      stFill: $('.bar.st .fill'), stBar: $('.bar.st'),
+      fury: [...this.root.querySelectorAll('.fury i')],
+      sigils: [...this.root.querySelectorAll('.sigil')],
+      sigilName: $('.sigil-name'),
+      minimap: $('.minimap'),
+      status: $('.status'),
+      objTitle: $('.objective .title'), objText: $('.objective .text'), objSub: $('.objective .sub'),
+      knives: $('.item.knives'), knivesN: $('.item.knives .n'),
+      tonics: $('.item.tonics'), tonicsN: $('.item.tonics .n'),
+      hint: $('.hint'),
+      prompt: $('.prompt'), promptLabel: $('.prompt .label'), promptKey: $('.prompt .key'),
+      notify: $('.notify'),
+      banner: $('.banner'), bannerBig: $('.banner .big'), bannerSmall: $('.banner .small'),
+      boss: $('.bossbar'), bossName: $('.bossbar .name'), bossFill: $('.bossbar .fill'),
+      markers: $('.markers'),
+      wave: $('.wave'),
+      sight: $('.vignette-sight'),
+      fps: $('.fps'),
+      lockhint: $('.lockhint'),
+    };
+    this.mm = this.h.minimap.getContext('2d');
+    this.hpLagV = 1;
+    this.h.lockhint.addEventListener('click', () => { this.game.input.requestLock(); this.game.audio?.unlock(); });
+  }
+
+  setText(key, node, v) {
+    if (this.cache[key] === v) return;
+    this.cache[key] = v;
+    node.textContent = v;
+  }
+
+  setStyle(key, node, prop, v) {
+    if (this.cache[key] === v) return;
+    this.cache[key] = v;
+    node.style[prop] = v;
+  }
+
+  setClass(key, node, cls, on) {
+    const k = key + cls;
+    if (this.cache[k] === on) return;
+    this.cache[k] = on;
+    node.classList.toggle(cls, on);
+  }
+
+  showHud(on) { this.h.hud.classList.toggle('on', on); }
+
+  // ------------------------------------------------------------ per frame
+  update(dt) {
+    const g = this.game;
+    const p = g.player;
+    const h = this.h;
+    if (!p) return;
+    // health / armor / stamina
+    const hpF = clamp(p.hp / p.maxHp, 0, 1);
+    this.hpLagV = this.hpLagV > hpF ? Math.max(hpF, this.hpLagV - dt * 0.35) : hpF;
+    this.setStyle('hp', h.hpFill, 'transform', `scaleX(${hpF.toFixed(3)})`);
+    this.setStyle('hpl', h.hpLag, 'transform', `scaleX(${this.hpLagV.toFixed(3)})`);
+    this.setStyle('ar', h.hpArmor, 'transform', `scaleX(${clamp(p.armor / p.maxArmor, 0, 1).toFixed(3)})`);
+    this.setStyle('hpw', h.hpBar, 'width', `${Math.round(300 * p.maxHp / 150)}px`);
+    this.setClass('hpb', h.hpBar, 'low', hpF < 0.3);
+    const stF = clamp(p.stamina / p.maxStamina, 0, 1);
+    this.setStyle('st', h.stFill, 'transform', `scaleX(${stF.toFixed(3)})`);
+    this.setStyle('stw', h.stBar, 'width', `${Math.round(230 * p.maxStamina / 100)}px`);
+    this.setClass('stb', h.stBar, 'empty', p.stamina < 50);
+    h.fury.forEach((f, i) => this.setClass('fury' + i, f, 'on', p.fury > i));
+    h.sigils.forEach((s, i) => {
+      this.setClass('sig' + i, s, 'sel', i === p.sigil);
+      this.setClass('sigs' + i, s, 'nost', p.stamina < SIGILS[i].cost);
+    });
+    this.setText('sname', h.sigilName, SIGILS[p.sigil].name + (p.aegis > 0 ? ' · ward active' : ''));
+    this.setText('kn', h.knivesN, String(p.knives));
+    this.setClass('kne', h.knives, 'empty', p.knives === 0);
+    this.setText('tn', h.tonicsN, String(p.tonics));
+    this.setClass('tne', h.tonics, 'empty', p.tonics === 0);
+    // stealth status
+    const cs = g.director.combatState();
+    let st = 'anon', label = 'Anonymous';
+    if (p.state === 'hidden') { st = 'hidden'; label = 'Hidden'; }
+    else if (cs.close > 0) { st = 'det'; label = 'Detected'; }
+    else if (cs.suspicious > 0) { st = 'sus'; label = 'Suspicious'; }
+    if (this.cache.status !== st) {
+      this.cache.status = st;
+      h.status.className = 'status ' + st;
+      h.status.textContent = label;
+    }
+    // prompt
+    const pr = p.prompt;
+    if (pr && !p.dead && g.state === 'playing') {
+      this.setText('pl', h.promptLabel, pr.label);
+      this.setText('pk', h.promptKey, g.input.lastDevice === 'pad' ? 'LB' : 'F');
+      this.setClass('pr', h.prompt, 'on', true);
+      this.setClass('prg', h.prompt, 'glory', pr.kind === 'glory');
+      this.setClass('prd', h.prompt, 'danger', pr.kind === 'assassinate' || pr.kind === 'airAssassinate' || pr.kind === 'hayAssassinate' || pr.kind === 'ledgeAssassinate');
+    } else this.setClass('pr', h.prompt, 'on', false);
+    // objective
+    const obj = g.objective();
+    this.setText('ot', h.objTitle, obj.title);
+    this.setText('ox', h.objText, obj.text);
+    this.setText('os', h.objSub, obj.sub || '');
+    // boss
+    const boss = g.director.boss;
+    if (boss && !boss.dead && boss.state !== 'spawn') {
+      this.setClass('boss', h.boss, 'on', true);
+      this.setText('bn', h.bossName, boss.def.name);
+      this.setStyle('bf', h.bossFill, 'transform', `scaleX(${clamp(boss.hp / boss.maxHp, 0, 1).toFixed(3)})`);
+    } else this.setClass('boss', h.boss, 'on', false);
+    // arena wave
+    const A = g.director.arena;
+    if (A && !A.done && A.wave >= 0) {
+      this.setClass('wave', h.wave, 'on', true);
+      this.setText('wt', h.wave, `${A.rift.name.toUpperCase()} · WAVE ${Math.min(A.wave + 1, A.waves.length)} / ${A.waves.length} · ${A.alive.size} DEMONS`);
+    } else this.setClass('wave', h.wave, 'on', false);
+    this.setClass('sight', h.sight, 'on', g.sightOn);
+    if (g.settings.fps) this.setText('fps', h.fps, `${Math.round(g.loop.fps)} fps`);
+    else this.setText('fps', h.fps, '');
+    this.setClass('lh', h.lockhint, 'on', g.state === 'playing' && !g.input.locked && g.wantLockHint);
+
+    this.updateMarkers(dt);
+    this.updateDamageNumbers(dt);
+    this.lastMinimap += dt;
+    if (this.lastMinimap > 1 / 30) { this.lastMinimap = 0; this.drawMinimap(); }
+  }
+
+  // ------------------------------------------------------------ markers
+  marker(i) {
+    if (!this.markers[i]) {
+      const m = el('<div class="mk"><div class="gl"></div><div class="lock"></div><svg class="aw" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="rgba(0,0,0,0.55)" stroke="rgba(0,0,0,0.6)" stroke-width="2"/><circle class="arc" cx="12" cy="12" r="9" fill="none" stroke="#ffd35a" stroke-width="3" stroke-dasharray="56.5" stroke-dashoffset="56.5" transform="rotate(-90 12 12)"/><text x="12" y="16.5" text-anchor="middle" font-size="13" font-weight="700" fill="#ffd35a" font-family="Cinzel,serif">?</text></svg><div class="hp"><i></i></div></div>');
+      this.h.markers.appendChild(m);
+      this.markers[i] = { el: m, arc: m.querySelector('.arc'), text: m.querySelector('text'), aw: m.querySelector('.aw'), hp: m.querySelector('.hp'), hpi: m.querySelector('.hp i'), lock: m.querySelector('.lock'), gl: m.querySelector('.gl'), c: {} };
+    }
+    return this.markers[i];
+  }
+
+  edge(i) {
+    if (!this.edges[i]) {
+      const e = el('<div class="edge"></div>');
+      this.h.markers.appendChild(e);
+      this.edges[i] = e;
+    }
+    return this.edges[i];
+  }
+
+  updateMarkers() {
+    const g = this.game;
+    const cam = g.renderer.camera;
+    const W = window.innerWidth, H = window.innerHeight;
+    const p = g.player;
+    let mi = 0, ei = 0;
+    const v = this._v || (this._v = new THREE.Vector3());
+    const now = g.realTime;
+    for (const e of g.director.enemies) {
+      if (e.dead || e.removed) continue;
+      const view = g.director.views.get(e);
+      if (!view || !view.mesh) continue;
+      const dx = e.pos.x - p.pos.x, dz = e.pos.z - p.pos.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 45) continue;
+      const showAw = !e.alerted && e.awareness > 0.03;
+      const showAlert = e.alerted && now - (e.alertedAt ?? -99) < 2.5;
+      const showHp = (e.hp < e.maxHp || (e.alerted && dist < 18)) && !e.def.boss && dist < 26;
+      const locked = p.lockTarget === e;
+      const glory = e.gloryable && dist < 8;
+      if (!showAw && !showAlert && !showHp && !locked && !glory) continue;
+      view.headPos(v);
+      v.project(cam);
+      const onScreen = v.z < 1 && v.x > -1.05 && v.x < 1.05 && v.y > -1.05 && v.y < 1.05;
+      if (!onScreen) {
+        if ((showAw || showAlert) && dist < 32) {
+          // edge arrow pointing toward the demon relative to the camera
+          const ang = Math.atan2(dx, dz) - g.camera.yaw;
+          const ed = this.edge(ei++);
+          const r = Math.min(W, H) * 0.32;
+          const sx = W / 2 - Math.sin(ang) * r, sy = H / 2 - Math.cos(ang) * r;
+          ed.style.display = 'block';
+          ed.style.transform = `translate(${sx - 10}px, ${sy - 12}px) rotate(${-ang}rad)`;
+          ed.className = 'edge' + (e.alerted || e.awareness > 0.7 ? ' det' : '');
+        }
+        continue;
+      }
+      const m = this.marker(mi++);
+      const sx = (v.x * 0.5 + 0.5) * W, sy = (-v.y * 0.5 + 0.5) * H;
+      m.el.style.display = 'flex';
+      m.el.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px) translate(-50%, -100%)`;
+      const awOn = showAw || showAlert;
+      if (m.c.aw !== awOn) { m.c.aw = awOn; m.aw.style.display = awOn ? 'block' : 'none'; }
+      if (awOn) {
+        const f = showAlert ? 1 : e.awareness;
+        m.arc.setAttribute('stroke-dashoffset', (56.5 * (1 - f)).toFixed(1));
+        const col = showAlert ? '#ff4a3a' : f > 0.66 ? '#ff9a3a' : '#ffd35a';
+        if (m.c.col !== col) { m.c.col = col; m.arc.setAttribute('stroke', col); m.text.setAttribute('fill', col); }
+        const ch = showAlert ? '!' : '?';
+        if (m.c.ch !== ch) { m.c.ch = ch; m.text.textContent = ch; }
+      }
+      if (m.c.hpOn !== showHp) { m.c.hpOn = showHp; m.hp.style.display = showHp ? 'block' : 'none'; }
+      if (showHp) {
+        m.hpi.style.width = `${clamp(e.hp / e.maxHp, 0, 1) * 100}%`;
+        const arm = e.def.armoredFront && e.burning <= 0;
+        if (m.c.arm !== arm) { m.c.arm = arm; m.hp.classList.toggle('armored', arm); }
+      }
+      if (m.c.lock !== locked) { m.c.lock = locked; m.lock.style.display = locked ? 'block' : 'none'; }
+      const gl = glory ? (g.input.lastDevice === 'pad' ? 'LB' : 'F') + ' · GLORY' : '';
+      if (m.c.gl !== gl) { m.c.gl = gl; m.gl.textContent = gl; m.gl.style.display = gl ? 'block' : 'none'; }
+    }
+    for (let i = mi; i < this.markers.length; i++) if (this.markers[i].el.style.display !== 'none') this.markers[i].el.style.display = 'none';
+    for (let i = ei; i < this.edges.length; i++) if (this.edges[i].style.display !== 'none') this.edges[i].style.display = 'none';
+  }
+
+  damageNumber(e, amount, armored) {
+    if (!this.game.settings.dmgNumbers) return;
+    const view = this.game.director.views.get(e);
+    if (!view) return;
+    const pos = view.headPos(new THREE.Vector3());
+    pos.y -= 0.3;
+    let d = this.dmgs.find((x) => !x.alive);
+    if (!d) {
+      if (this.dmgs.length > 24) return;
+      d = { el: el('<div class="dmg"></div>'), alive: false };
+      this.h.markers.appendChild(d.el);
+      this.dmgs.push(d);
+    }
+    d.alive = true;
+    d.t = 0;
+    d.pos = pos;
+    d.vx = (Math.random() - 0.5) * 0.8;
+    d.el.textContent = Math.round(amount);
+    d.el.className = 'dmg' + (armored ? ' armor' : amount >= 45 ? ' crit' : '');
+    d.el.style.display = 'block';
+  }
+
+  updateDamageNumbers(dt) {
+    const cam = this.game.renderer.camera;
+    const W = window.innerWidth, H = window.innerHeight;
+    const v = this._v2 || (this._v2 = new THREE.Vector3());
+    for (const d of this.dmgs) {
+      if (!d.alive) continue;
+      d.t += dt;
+      d.pos.y += dt * 1.2;
+      d.pos.x += d.vx * dt;
+      v.copy(d.pos).project(cam);
+      if (d.t > 0.9 || v.z > 1) { d.alive = false; d.el.style.display = 'none'; continue; }
+      d.el.style.left = ((v.x * 0.5 + 0.5) * W).toFixed(1) + 'px';
+      d.el.style.top = ((-v.y * 0.5 + 0.5) * H).toFixed(1) + 'px';
+      d.el.style.opacity = String(1 - Math.max(0, d.t - 0.5) / 0.4);
+    }
+  }
+
+  // ------------------------------------------------------------ minimap
+  drawMinimap() {
+    const g = this.game;
+    const ctx = this.mm;
+    const city = g.city;
+    const p = g.player;
+    const S = 190, R = S / 2;
+    const scale = 1.6; // px per metre on the minimap
+    ctx.save();
+    ctx.clearRect(0, 0, S, S);
+    ctx.beginPath();
+    ctx.arc(R, R, R - 1, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = '#1a110b';
+    ctx.fillRect(0, 0, S, S);
+    ctx.translate(R, R);
+    ctx.rotate(Math.PI + g.camera.yaw);
+    // map image: city.mapCanvas has 2 px / m with origin at -WALL_OUT
+    const ms = city.mapScale;
+    const k = scale / ms;
+    ctx.scale(k, k);
+    ctx.drawImage(city.mapCanvas, -(p.pos.x - city.mapOrigin) * ms, -(p.pos.z - city.mapOrigin) * ms);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // icons in rotated space
+    const rot = -(Math.PI + g.camera.yaw);
+    const toScreen = (x, z) => {
+      const dx = (x - p.pos.x) * scale, dz = (z - p.pos.z) * scale;
+      const c = Math.cos(-rot), s = Math.sin(-rot);
+      return [R + dx * c - dz * s, R + dx * s + dz * c];
+    };
+    const prog = g.progress;
+    const clampEdge = (sx, sy, m = 10) => {
+      const dx = sx - R, dy = sy - R, d = Math.hypot(dx, dy);
+      if (d > R - m) return [R + (dx / d) * (R - m), R + (dy / d) * (R - m), true];
+      return [sx, sy, false];
+    };
+    // viewpoints
+    for (const vp of city.viewpoints) {
+      const [sx, sy] = toScreen(vp.x, vp.z);
+      if (Math.hypot(sx - R, sy - R) > R) continue;
+      this.drawVpIcon(ctx, sx, sy, prog.viewpoints[vp.id]);
+    }
+    // chests revealed by synced viewpoints
+    for (const c of g.interactions.chests) {
+      if (c.open || !g.isRevealed(c.data.x, c.data.z)) continue;
+      const [sx, sy] = toScreen(c.data.x, c.data.z);
+      if (Math.hypot(sx - R, sy - R) > R - 4) continue;
+      ctx.fillStyle = '#d8b040';
+      ctx.fillRect(sx - 3, sy - 2, 6, 4);
+    }
+    // demons
+    for (const e of g.director.enemies) {
+      if (e.dead) continue;
+      const d = Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z);
+      if (d > 55) continue;
+      const known = e.alerted || e.awareness > 0.05 || d < 22 || g.sightOn;
+      if (!known) continue;
+      const [sx, sy] = toScreen(e.pos.x, e.pos.z);
+      if (Math.hypot(sx - R, sy - R) > R - 3) continue;
+      ctx.fillStyle = e.alerted ? '#ff3a2a' : e.awareness > 0.05 ? '#ffd35a' : 'rgba(200,120,100,0.75)';
+      ctx.beginPath();
+      ctx.arc(sx, sy, e.def.heavy ? 4 : 2.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // objective marker
+    const obj = g.objective();
+    if (obj.pos) {
+      let [sx, sy] = toScreen(obj.pos.x, obj.pos.z);
+      [sx, sy] = clampEdge(sx, sy, 9);
+      ctx.fillStyle = '#ffcf6a';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - 7); ctx.lineTo(sx + 5, sy); ctx.lineTo(sx, sy + 7); ctx.lineTo(sx - 5, sy); ctx.closePath();
+      ctx.stroke(); ctx.fill();
+    }
+    // player arrow (map rotates with the camera; arrow shows facing)
+    ctx.translate(R, R);
+    ctx.rotate(-(p.renderYaw ? p.renderYaw(1) : p.yaw) + g.camera.yaw);
+    ctx.fillStyle = '#fff2cc';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, -8); ctx.lineTo(6, 6); ctx.lineTo(0, 3); ctx.lineTo(-6, 6); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+    // north indicator position
+    const n = this.$('.minimap-n');
+    const na = Math.PI + g.camera.yaw;
+    n.style.left = `${R + Math.sin(-na) * (R - 2) * -1}px`;
+    n.style.top = `${R - Math.cos(-na) * (R - 2) * -1 - 8}px`;
+  }
+
+  drawVpIcon(ctx, x, y, synced) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = synced ? '#f0c860' : '#8a7a60';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, -7); ctx.lineTo(7, 4); ctx.lineTo(0, 1); ctx.lineTo(-7, 4); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+  // ------------------------------------------------------------ big map
+  drawBigMap() {
+    const g = this.game;
+    const cv = this.$('#bigmap');
+    const ctx = cv.getContext('2d');
+    const city = g.city;
+    const W = cv.width;
+    const mc = city.mapCanvas;
+    ctx.drawImage(mc, 0, 0, W, W);
+    const s = W / (mc.width / city.mapScale);
+    const tx = (x) => (x - city.mapOrigin) * s;
+    // fog of the unknown: darken areas not revealed
+    ctx.save();
+    ctx.fillStyle = 'rgba(10,5,3,0.55)';
+    ctx.beginPath();
+    ctx.rect(0, 0, W, W);
+    for (const vp of city.viewpoints) {
+      if (!g.progress.viewpoints[vp.id]) continue;
+      ctx.moveTo(tx(vp.x) + 95 * s, tx(vp.z));
+      ctx.arc(tx(vp.x), tx(vp.z), 95 * s, 0, Math.PI * 2, true);
+    }
+    ctx.fill('evenodd');
+    ctx.restore();
+    for (const r of city.rifts) {
+      const x = tx(r.x), y = tx(r.z);
+      ctx.fillStyle = r.closed ? '#f4e2b0' : '#ff3a1a';
+      ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.font = '600 13px Cinzel, serif'; ctx.textAlign = 'center';
+      ctx.fillText(r.closed ? r.name + ' (cleansed)' : r.name, x, y - 14);
+    }
+    if (Object.values(g.progress.rifts).filter(Boolean).length >= 3 && !g.progress.boss) {
+      const c = city.cathedral.arena;
+      ctx.fillStyle = '#ff2a10';
+      ctx.beginPath(); ctx.arc(tx(c.x), tx(c.z), 12, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillText('The Cardinal of Ash', tx(c.x), tx(c.z) - 18);
+    }
+    for (const vp of city.viewpoints) {
+      this.drawVpIcon(ctx, tx(vp.x), tx(vp.z), g.progress.viewpoints[vp.id]);
+      ctx.fillStyle = '#e8d8b8'; ctx.font = '12px EB Garamond, serif'; ctx.textAlign = 'center';
+      ctx.fillText(vp.name, tx(vp.x), tx(vp.z) + 18);
+    }
+    for (const c of g.interactions.chests) {
+      if (c.open || !g.isRevealed(c.data.x, c.data.z)) continue;
+      ctx.fillStyle = '#d8b040'; ctx.fillRect(tx(c.data.x) - 4, tx(c.data.z) - 3, 8, 6);
+    }
+    for (const e of g.director.enemies) {
+      if (e.dead || !e.alerted) continue;
+      ctx.fillStyle = '#ff5a4a'; ctx.beginPath(); ctx.arc(tx(e.pos.x), tx(e.pos.z), 3, 0, Math.PI * 2); ctx.fill();
+    }
+    const p = g.player;
+    ctx.save();
+    ctx.translate(tx(p.pos.x), tx(p.pos.z));
+    ctx.rotate(Math.PI - p.yaw);
+    ctx.fillStyle = '#fff2cc'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(7, 8); ctx.lineTo(0, 4); ctx.lineTo(-7, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+  // ------------------------------------------------------------ messages
+  notify(text, kind = '') {
+    const n = el(`<div class="note ${kind}"></div>`);
+    n.textContent = text;
+    n.style.setProperty('--d', '3.2s');
+    this.h.notify.appendChild(n);
+    setTimeout(() => n.remove(), 4000);
+    while (this.h.notify.children.length > 4) this.h.notify.firstChild.remove();
+  }
+
+  banner(big, small = '') {
+    const b = this.h.banner;
+    this.h.bannerBig.textContent = big;
+    this.h.bannerSmall.textContent = small;
+    b.classList.remove('on');
+    void b.offsetWidth;
+    b.classList.add('on');
+  }
+
+  hint(html, seconds = 6) {
+    const h = this.h.hint;
+    h.innerHTML = html;
+    h.classList.add('on');
+    clearTimeout(this.hintTimer);
+    this.hintTimer = setTimeout(() => h.classList.remove('on'), seconds * 1000);
+  }
+
+  // ------------------------------------------------------------ screens
+  show(id) {
+    for (const s of this.root.querySelectorAll('.screen')) s.classList.toggle('on', s.id === 'screen-' + id);
+    this.screen = id || null;
+    this.focusIdx = 0;
+    if (id === 'map') this.drawBigMap();
+    if (id === 'upgrades') this.renderUpgrades();
+    if (id === 'settings') this.syncSettings();
+    if (id === 'title') {
+      const cont = this.$('[data-act="continue"]');
+      cont.style.display = this.game.hasSave() ? '' : 'none';
+    }
+    this.updateFocus();
+  }
+
+  setLoading(f, text) {
+    this.$('.loadbar i').style.width = `${Math.round(f * 100)}%`;
+    if (text) this.$('.loadtext').textContent = text;
+  }
+
+  bindMenus() {
+    this.root.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-act]');
+      if (!b) return;
+      this.game.audio?.unlock();
+      this.game.audio?.play('uiClick', { volume: 0.6 });
+      this.game.menuAction(b.dataset.act, b);
+    });
+    this.root.addEventListener('mouseover', (e) => {
+      const b = e.target.closest('.btn');
+      if (b && b !== this.hovered) { this.hovered = b; this.game.audio?.play('uiHover', { volume: 0.25 }); }
+    });
+    this.root.addEventListener('input', (e) => {
+      const k = e.target.dataset.set;
+      if (!k) return;
+      this.game.setSetting(k, e.target.value);
+      this.syncSettings();
+    });
+    this.root.addEventListener('change', (e) => {
+      const k = e.target.dataset.set;
+      if (!k) return;
+      this.game.setSetting(k, e.target.value);
+      this.syncSettings();
+    });
+  }
+
+  /** Keyboard / gamepad navigation of menus. */
+  navigate(dir) {
+    const btns = this.visibleButtons();
+    if (!btns.length) return;
+    this.focusIdx = (this.focusIdx + dir + btns.length) % btns.length;
+    this.updateFocus();
+    this.game.audio?.play('uiHover', { volume: 0.25 });
+  }
+
+  activate() {
+    const btns = this.visibleButtons();
+    const b = btns[this.focusIdx];
+    if (b) b.click();
+  }
+
+  visibleButtons() {
+    if (!this.screen) return [];
+    const s = this.$('#screen-' + this.screen);
+    return [...s.querySelectorAll('.btn')].filter((b) => b.offsetParent !== null && !b.disabled);
+  }
+
+  updateFocus() {
+    const btns = this.visibleButtons();
+    btns.forEach((b, i) => b.classList.toggle('focus', i === this.focusIdx));
+  }
+
+  syncSettings() {
+    const s = this.game.settings;
+    for (const inp of this.root.querySelectorAll('[data-set]')) {
+      const k = inp.dataset.set;
+      let v = s[k];
+      if (typeof v === 'boolean') v = v ? '1' : '0';
+      if (inp.value !== String(v)) inp.value = String(v);
+    }
+    for (const sp of this.root.querySelectorAll('[data-v]')) {
+      const k = sp.dataset.v;
+      const v = s[k];
+      sp.textContent = k === 'fov' ? `${v}°` : k === 'sens' ? Number(v).toFixed(2) : `${Math.round(v * 100)}%`;
+    }
+  }
+
+  renderUpgrades() {
+    const g = this.game;
+    const prog = g.progress;
+    this.$('.runes').textContent = `Ashen Runes: ${prog.runes}`;
+    const list = this.$('.upg-list');
+    list.innerHTML = '';
+    for (const u of UPGRADES) {
+      const lvl = prog.upgrades[u.id] || 0;
+      const max = u.costs.length;
+      const cost = lvl < max ? u.costs[lvl] : null;
+      const row = el(`<div class="upg"><div><div class="n"></div><div class="d"></div><div class="pips">${u.costs.map((_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('')}</div></div><button class="btn small" data-act="buy" data-id="${u.id}"></button></div>`);
+      row.querySelector('.n').textContent = u.name;
+      row.querySelector('.d').textContent = u.desc;
+      const b = row.querySelector('button');
+      b.textContent = cost === null ? 'Mastered' : `Learn (${cost})`;
+      b.disabled = cost === null || prog.runes < cost;
+      list.appendChild(row);
+    }
+    this.updateFocus();
+  }
+
+  renderVictory(stats) {
+    const s = this.$('#screen-victory .stats');
+    s.innerHTML = Object.entries(stats).map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
+  }
+
+  embers() {
+    const box = this.$('#screen-title .embers');
+    for (let i = 0; i < 40; i++) {
+      const e = document.createElement('i');
+      e.style.left = `${Math.random() * 100}%`;
+      e.style.animationDuration = `${6 + Math.random() * 10}s`;
+      e.style.animationDelay = `${-Math.random() * 12}s`;
+      e.style.setProperty('--dx', `${(Math.random() - 0.3) * 200}px`);
+      e.style.opacity = String(0.4 + Math.random() * 0.6);
+      box.appendChild(e);
+    }
+  }
+}

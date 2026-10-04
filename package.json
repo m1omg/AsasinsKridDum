@@ -1,0 +1,19 @@
+{
+  "name": "hellcreed",
+  "private": true,
+  "version": "1.0.0",
+  "description": "HELLCREED - a third-person stealth / parkour / demon-slaying action game (Three.js)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "vite": "^7.1.0",
+    "vite-plugin-singlefile": "^2.3.0"
+  }
+}
