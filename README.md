@@ -20,7 +20,7 @@ npm run dev      # dev server with hot reload, then open the printed URL
 npm run build    # writes the single-file game to dist/index.html
 ```
 
-Click the game window to capture the mouse. `Esc` pauses. Progress auto-saves at viewpoints, chests and rifts (stored in your browser's `localStorage`).
+You need a keyboard and mouse or a gamepad; touch screens aren't supported. Click the game window to capture the mouse. `Esc` pauses. Progress auto-saves at viewpoints, chests and rifts (stored in your browser's `localStorage`).
 
 ## Controls
 
@@ -88,7 +88,7 @@ Ashen Runes come from chests, viewpoints, closed rifts and every third hidden Cr
 ## How it's made
 
 - **Engine**: [Three.js](https://threejs.org/) with custom systems: an AABB/slope collision world with a spatial hash, a kinematic character controller, a nav grid with A* and a flow field, procedural animation, and particles. Post-processing adds bloom, color grading, and the Ashen Sight x-ray pass.
-- **Refresh-rate independent**: game logic runs on a fixed 60 Hz timestep. Rendering interpolates between steps, and all smoothing is exponential in real time. 60, 144 and 240 Hz displays play identically.
+- **Refresh-rate independent**: game logic runs on a fixed 60 Hz timestep and rendering interpolates between steps. Input events carry timestamps and are applied on the step in which they happened, hit-stop and slow motion are timed in real time inside the frame, and all smoothing is exponential in real time. A scripted 20-second fight simulates bit-identically at 30, 60, 144 and 240 Hz and with uneven frame pacing.
 - **Procedural everything else**:
   - The city: street grid, buildings with ledges and gable roofs, enterable houses with stairs and window openings, the cathedral, towers, beams and props.
   - Characters and demons: primitives skinned to bones in a single mesh each, with procedural animation.
