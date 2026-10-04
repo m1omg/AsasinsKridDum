@@ -385,6 +385,10 @@ export class Game {
     ev.on('alerted', (e) => {
       e.alertedAt = this.realTime;
       if (this.state !== 'playing') return;
+      if (!this.combatHinted && Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z) < 30) {
+        this.combatHinted = true;
+        setTimeout(() => this.ui.hint('Demons flash <span style="color:#ffd35a">yellow</span> before a parryable strike: tap <b>Right mouse</b> as it lands to <b>parry</b> and counter. <span style="color:#ff6a5a">Red</span> strikes: <b>E</b> dodge / <b>Space</b> roll. <b>Q</b> casts your Sigil.', 10), 1200);
+      }
       if (!this.lastAlertSound || this.realTime - this.lastAlertSound > 4) {
         this.lastAlertSound = this.realTime;
         this.audio.play('alert', { volume: 0.7 });

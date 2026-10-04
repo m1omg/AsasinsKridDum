@@ -92,8 +92,10 @@ export class EnemyView {
     this.bound.center.copy(m.position);
     this.bound.center.y += e.def.height * 0.5;
     const dCam = m.position.distanceTo(camPos);
-    const inView = frustum.intersectsSphere(this.bound) && dCam < 140;
+    const inView = frustum.intersectsSphere(this.bound) && dCam < 120;
     m.visible = inView && !e.removed;
+    // shadows only near the camera (the shadow map covers ~50 m anyway)
+    m.castShadow = dCam < 38 || e.def.boss;
     if (!m.visible) return;
     this.time += dt;
     if (dCam > 70 && (this.visibleFrames++ % 3) !== 0) return; // far: animate at 1/3 rate
