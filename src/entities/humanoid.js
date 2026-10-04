@@ -87,7 +87,7 @@ export function buildAssassin(materials) {
   r.add('head', G.sphere(0.093, 14, 10), mat(0, 1.665, 0.012, 0, 0, 0, 0.92, 1.12, 0.98), 'charSkin', SKIN);
   const hoodGeo = new THREE.SphereGeometry(0.128, 16, 12, Math.PI / 2 + 0.85, Math.PI * 2 - 1.7, 0, Math.PI * 0.78);
   r.add('head', hoodGeo, mat(0, 1.69, -0.012, 0, 0, 0, 1.02, 1.14, 1.12), 'charCloth', WHITE);
-  r.add('head', G.sphere(0.12, 12, 8), mat(0, 1.69, -0.04, 0, 0, 0, 0.96, 1.06, 1.0), 'charCloth', [0.12, 0.11, 0.11]);
+  r.add('head', G.sphere(0.11, 12, 8), mat(0, 1.69, -0.02, 0, 0, 0, 0.96, 1.05, 1.0), 'charCloth', [0.12, 0.11, 0.11]);
   r.add('head', G.cone(0.07, 0.13, 10), mat(0, 1.78, 0.07, 1.95, 0, 0, 1, 1, 0.55), 'charCloth', WHITE);
   // hood drape over the shoulders
   r.add('chest', G.cone(0.2, 0.2, 14), mat(0, 1.53, -0.03, 0, 0, 0, 1, 1, 0.82), 'charCloth', WHITE);
@@ -134,8 +134,15 @@ export function buildAssassin(materials) {
     r.add('tail3', G.box(0.12, 0.2, 0.022), mat(sx * 0.095, hipY - 0.71, -0.172, 0, 0, sx * 0.08), 'charCloth', WHITE);
     r.add('tail3', G.box(0.12, 0.035, 0.026), mat(sx * 0.1, hipY - 0.8, -0.172, 0, 0, sx * 0.08), 'charCloth', RED);
   }
-  // scabbard on the left hip
-  r.add('hips', G.box(0.05, 0.05, 0.86), mat(0.21, 0.56, -0.17, -0.96, 0, 0), 'charLeather', [0.25, 0.15, 0.1]);
+  // scabbard slung diagonally across the back (hilt over the right shoulder)
+  {
+    const dir = new THREE.Vector3(0.42, -0.9, -0.06).normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+    const c = new THREE.Vector3(-0.17, 1.6, -0.2).addScaledVector(dir, 0.56);
+    r.add('chest', G.box(0.055, 0.03, 0.9), new THREE.Matrix4().compose(c, q, new THREE.Vector3(1, 1, 1)), 'charLeather', [0.25, 0.15, 0.1]);
+    const strap = new THREE.Vector3(-0.17, 1.6, -0.2).addScaledVector(dir, 0.15);
+    r.add('chest', G.box(0.07, 0.05, 0.05), new THREE.Matrix4().compose(strap, q, new THREE.Vector3(1, 1, 1)), 'charMetal', [0.6, 0.5, 0.3]);
+  }
 
   const rig = r.build(materials, CHAR_MATS);
 
@@ -180,9 +187,11 @@ export function placeSword(model, drawn) {
     sword.position.set(0, -0.06, 0.01);
     sword.rotation.set(0, 0, 0);
   } else {
-    bones.hips.add(sword);
-    sword.position.set(0.21, -0.06, 0.07);
-    sword.rotation.set(2.18, 0, 0);
+    // on the back: grip above the right shoulder, blade down to the left hip
+    bones.chest.add(sword);
+    const dir = new THREE.Vector3(0.42, -0.9, -0.06).normalize();
+    sword.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+    sword.position.set(-0.17, 1.6 - model.dims.hipY - 0.33, -0.2).addScaledVector(dir, 0.06);
   }
 }
 

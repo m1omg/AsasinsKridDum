@@ -6,6 +6,7 @@ import { idlePose, gaitPose, climbPose, airPose } from './humanoid.js';
 import { sampleClip, overlayPose } from './rig.js';
 import { clamp, damp, dampFactor, smoothstep } from '../core/math.js';
 import { LAYER_XRAY } from '../render/renderer.js';
+import { addRim } from '../render/materials.js';
 
 // Visual side of a demon: instanced model, per-instance materials for glow
 // effects (telegraph, burning, glory stagger, dissolve) and procedural anims.
@@ -36,6 +37,10 @@ export class EnemyView {
     this.mats = src.map((m) => m.clone());
     this.mesh.material = this.mats.length === 1 ? this.mats[0] : this.mats;
     this.litMats = this.mats.filter((m) => m.isMeshStandardMaterial);
+    // cloned materials lose shader hooks: give every demon a hot rim light
+    for (const m of this.litMats) addRim(m, enemy.def.boss ? 0xff7a2a : 0xff4a14, enemy.def.boss ? 0.5 : 0.36, 2.6);
+    this.baseScale = enemy.def.modelScale || 1;
+    this.mesh.scale.setScalar(this.baseScale);
     this.glowMat = this.mats.find((m) => m.isMeshBasicMaterial) || null;
     this.bones = {};
     this.mesh.traverse((o) => { if (o.isBone) this.bones[o.name] = o; });
@@ -132,7 +137,8 @@ export class EnemyView {
       const o = pose[n] || (pose[n] = [0, 0, 0]);
       o[0] = c[0]; o[1] = c[1]; o[2] = c[2];
     }
-    this.bob = damp(this.bob, T._bob || 0, 10, dt);
+    const kneel = e.def.boss && e.state === 'dazed' ? -0.36 : 0;
+    this.bob = damp(this.bob, (T._bob || 0) + kneel, kneel ? 6 : 10, dt);
     // action overlay
     const anim = e.anim;
     const frames = anim && ENEMY_CLIPS[anim.clip];
@@ -302,7 +308,7 @@ export class EnemyView {
     // the mesh sinks while dissolving
     if (e.state === 'dead') {
       const s = 1 - smoothstep(2.6, 3.6, e.deathT) * 0.9;
-      this.mesh.scale.setScalar(s);
-    } else if (this.mesh.scale.x !== 1) this.mesh.scale.setScalar(1);
+      this.mesh.scale.setScalar(s * this.baseScale);
+    } else if (this.mesh.scale.x !== this.baseScale) this.mesh.scale.setScalar(this.baseScale);
   }
 }

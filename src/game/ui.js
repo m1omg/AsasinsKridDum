@@ -116,6 +116,7 @@ export class UI {
   <div class="banner"><div class="big"></div><div class="line"></div><div class="small"></div></div>
   <div class="bossbar"><div class="name"></div><div class="bar"><div class="fill"></div></div></div>
   <div class="markers"></div>
+  <div class="waypoint"><svg viewBox="0 0 24 24"><path d="M12 2l7 10-7 10-7-10z" fill="#ffcf6a" stroke="#1a0d07" stroke-width="1.6"/><path d="M12 7l3.5 5L12 17l-3.5-5z" fill="#1a0d07" opacity="0.55"/></svg><span></span></div>
   <div class="wave"></div>
   <div class="vignette-sight"></div>
   <div class="center-dot"></div>
@@ -239,6 +240,7 @@ export class UI {
       boss: $('.bossbar'), bossName: $('.bossbar .name'), bossFill: $('.bossbar .fill'),
       markers: $('.markers'),
       wave: $('.wave'),
+      wp: $('.waypoint'), wpText: $('.waypoint span'),
       sight: $('.vignette-sight'),
       fps: $('.fps'),
       lockhint: $('.lockhint'),
@@ -340,10 +342,35 @@ export class UI {
     else this.setText('fps', h.fps, '');
     this.setClass('lh', h.lockhint, 'on', g.state === 'playing' && !g.input.locked && g.wantLockHint);
 
+    this.updateWaypoint(obj);
     this.updateMarkers(dt);
     this.updateDamageNumbers(dt);
     this.lastMinimap += dt;
     if (this.lastMinimap > 1 / 30) { this.lastMinimap = 0; this.drawMinimap(); }
+  }
+
+  // ------------------------------------------------------------ waypoint
+  updateWaypoint(obj) {
+    const h = this.h;
+    const g = this.game;
+    const p = g.player;
+    if (!obj.pos || p.dead || g.sightOn === undefined) { this.setClass('wp', h.wp, 'on', false); return; }
+    const v = this._wv || (this._wv = new THREE.Vector3());
+    v.set(obj.pos.x, obj.pos.y ?? 4, obj.pos.z);
+    const dist = Math.hypot(v.x - p.pos.x, v.z - p.pos.z);
+    if (dist < 6) { this.setClass('wp', h.wp, 'on', false); return; }
+    this.setClass('wp', h.wp, 'on', true);
+    const cam = g.renderer.camera;
+    v.project(cam);
+    const W = window.innerWidth, H = window.innerHeight;
+    let x = (v.x * 0.5 + 0.5) * W, y = (-v.y * 0.5 + 0.5) * H;
+    const behind = v.z > 1;
+    if (behind) { x = W - x; y = H - 60; }
+    const m = 46;
+    x = clamp(x, m, W - m);
+    y = clamp(y, m + 40, H - m - 40);
+    h.wp.style.transform = `translate(${x.toFixed(0)}px, ${y.toFixed(0)}px) translate(-50%, -50%)`;
+    this.setText('wpt', h.wpText, `${Math.round(dist)} m`);
   }
 
   // ------------------------------------------------------------ markers
@@ -559,7 +586,7 @@ export class UI {
     const n = this.$('.minimap-n');
     const na = Math.PI + g.camera.yaw;
     n.style.left = `${R + Math.sin(-na) * (R - 2) * -1}px`;
-    n.style.top = `${R - Math.cos(-na) * (R - 2) * -1 - 8}px`;
+    n.style.top = `${R - Math.cos(na) * (R - 2) - 8}px`;
   }
 
   drawVpIcon(ctx, x, y, synced) {
@@ -585,18 +612,25 @@ export class UI {
     ctx.drawImage(mc, 0, 0, W, W);
     const s = W / (mc.width / city.mapScale);
     const tx = (x) => (x - city.mapOrigin) * s;
-    // fog of the unknown: darken areas not revealed
-    ctx.save();
-    ctx.fillStyle = 'rgba(10,5,3,0.55)';
-    ctx.beginPath();
-    ctx.rect(0, 0, W, W);
+    // fog of the unknown: darken areas not revealed by synced viewpoints
+    if (!this.fogCanvas) { this.fogCanvas = document.createElement('canvas'); this.fogCanvas.width = this.fogCanvas.height = W; }
+    const fc = this.fogCanvas.getContext('2d');
+    fc.globalCompositeOperation = 'source-over';
+    fc.clearRect(0, 0, W, W);
+    fc.fillStyle = 'rgba(10,5,3,0.6)';
+    fc.fillRect(0, 0, W, W);
+    fc.globalCompositeOperation = 'destination-out';
     for (const vp of city.viewpoints) {
       if (!g.progress.viewpoints[vp.id]) continue;
-      ctx.moveTo(tx(vp.x) + 95 * s, tx(vp.z));
-      ctx.arc(tx(vp.x), tx(vp.z), 95 * s, 0, Math.PI * 2, true);
+      const grad = fc.createRadialGradient(tx(vp.x), tx(vp.z), 80 * s, tx(vp.x), tx(vp.z), 98 * s);
+      grad.addColorStop(0, 'rgba(0,0,0,1)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      fc.fillStyle = grad;
+      fc.beginPath();
+      fc.arc(tx(vp.x), tx(vp.z), 98 * s, 0, Math.PI * 2);
+      fc.fill();
     }
-    ctx.fill('evenodd');
-    ctx.restore();
+    ctx.drawImage(this.fogCanvas, 0, 0);
     for (const r of city.rifts) {
       const x = tx(r.x), y = tx(r.z);
       ctx.fillStyle = r.closed ? '#f4e2b0' : '#ff3a1a';

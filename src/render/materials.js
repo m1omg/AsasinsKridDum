@@ -82,6 +82,25 @@ export function radialAlphaTexture(size = 256, inner = 0.55) {
   }, false);
 }
 
+/**
+ * Fresnel rim light added to the emissive term so characters read against
+ * the dark, smoky city (warm for demons, cool for the assassin).
+ */
+export function addRim(mat, color, strength = 0.6, power = 3.0) {
+  const rimColor = new THREE.Color(color);
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uRimColor = { value: rimColor };
+    shader.uniforms.uRimStrength = { value: strength };
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uRimColor;\nuniform float uRimStrength;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      { float rimF = 1.0 - abs(dot(normal, normalize(vViewPosition))); totalEmissiveRadiance += uRimColor * uRimStrength * pow(rimF, ${power.toFixed(1)}); }`);
+  };
+  mat.customProgramCacheKey = () => 'rim' + power.toFixed(1);
+  mat.needsUpdate = true;
+  return mat;
+}
+
 export function createMaterials(tex) {
   const m = {};
   const std = (o) => new THREE.MeshStandardMaterial(o);
@@ -115,5 +134,7 @@ export function createMaterials(tex) {
   m.charSkin = std({ vertexColors: true, roughness: 0.65, metalness: 0 });
   m.demon = std({ map: tex.demonskin, normalMap: tex.demonskin_n, vertexColors: true, roughness: 0.5, metalness: 0.05 });
   m.demonGlow = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+  for (const k of ['charCloth', 'charLeather', 'charMetal', 'charSkin']) addRim(m[k], 0x8aa6d8, 0.32, 2.5);
+  addRim(m.demon, 0xff5a1a, 0.55, 2.6);
   return m;
 }

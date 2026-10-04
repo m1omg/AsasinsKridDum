@@ -601,6 +601,10 @@ export class Player {
     }
     this.pos.y += dy;
     this.climbDist += Math.abs(dy) + Math.abs(ds);
+    if (this.climbDist - (this.lastClimbSound || 0) > 0.75) {
+      this.lastClimbSound = this.climbDist;
+      this.game.audio?.play('climb', { pos: this.pos, volume: 0.45 });
+    }
 
     // ---- surface checks
     const y = this.pos.y;

@@ -65,7 +65,13 @@ export class PlayerView {
     if (st === 'ground' || st === 'landroll' || p.groundLike) {
       const run = speed < 1.2 ? 0 : speed < 5.2 ? (speed - 1.2) / 3.7 : 1 + clamp((speed - 5.2) / 2.6, 0, 1);
       const stride = p.sneaking ? 1.0 : run < 1 ? 1.25 + run * 1.0 : 2.25 + (run - 1) * 0.65;
-      this.phase += (speed * dt / stride) * Math.PI * 2 * (p.sneaking ? 1 : 1);
+      const before = Math.floor(this.phase / Math.PI);
+      this.phase += (speed * dt / stride) * Math.PI * 2;
+      // footstep at each foot contact
+      if (Math.floor(this.phase / Math.PI) !== before && speed > 0.6 && st === 'ground') {
+        const vol = p.sneaking ? 0.12 : clamp(0.18 + speed * 0.07, 0.2, 0.75);
+        this.game.audio?.play('step', { pos: p.pos, volume: vol, pitch: p.onBeam ? 1.25 : 1 });
+      }
       const moving = clamp(speed / 1.4, 0, 1);
       const combat = p.inCombatStance && p.inCombatStance() && !p.sprinting;
       if (p.sneaking) {

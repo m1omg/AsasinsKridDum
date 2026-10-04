@@ -36,7 +36,7 @@ const GradeShader = {
       vec3 col = c.rgb;
       float l = dot(col, vec3(0.299, 0.587, 0.114));
       // subtle filmic warm grade
-      col = mix(col, col * vec3(1.06, 0.98, 0.92), 0.6);
+      col = mix(col, col * vec3(1.03, 1.0, 0.97), 0.5);
       col = mix(vec3(l), col, 1.0 - uDesat);
       // Ashen Sight: cold desaturated world, highlights keep their colour
       vec3 sight = vec3(l) * vec3(0.42, 0.48, 0.62);
@@ -111,27 +111,27 @@ export class Renderer {
     this.gl = gl;
     gl.outputColorSpace = THREE.SRGBColorSpace;
     gl.toneMapping = THREE.ACESFilmicToneMapping;
-    gl.toneMappingExposure = 1.05;
+    gl.toneMappingExposure = 1.0;
     gl.shadowMap.enabled = true;
     gl.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x3a1a12, 0.0062);
+    this.scene.fog = new THREE.FogExp2(0x2e1a15, 0.0058);
     this.camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1500);
     this.camera.layers.enable(LAYER_XRAY);
     this.camera.layers.enable(LAYER_XRAY_GOLD);
 
     // Lighting: dim red sky fill + warm low "hellfire" key light with shadows
-    this.hemi = new THREE.HemisphereLight(0xff8a66, 0x2a1210, 0.85);
+    this.hemi = new THREE.HemisphereLight(0xffb39a, 0x46322c, 1.2);
     this.scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xffb27a, 2.4);
+    this.sun = new THREE.DirectionalLight(0xffa070, 2.5);
     this.sunDir = new THREE.Vector3(-0.5, 0.62, -0.6).normalize();
     this.sun.castShadow = true;
     this.sun.shadow.bias = -0.0006;
     this.sun.shadow.normalBias = 0.04;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
-    this.ambient = new THREE.AmbientLight(0x402020, 0.35);
+    this.ambient = new THREE.AmbientLight(0x5a4a52, 0.4);
     this.scene.add(this.ambient);
 
     this.shadowFocus = new THREE.Vector3();

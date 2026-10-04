@@ -120,6 +120,7 @@ export class Game {
     this.ui.setLoading(0.75, 'Opening the rifts…');
     await new Promise((r) => setTimeout(r, 30));
     this.sky = new Sky(this.scene, this.tex);
+    this.sky.bakeEnvironment(this.renderer.gl, this.scene, 0.5);
     this.sky.onLightning = () => { this.lightning = 1; if (Math.random() < 0.5) this.audio.play('thunder', { volume: 0.5 }); };
     this.fx = new FX(this);
     this.camera = new ThirdPersonCamera(this.renderer.camera, this.collision, this.input);
@@ -236,14 +237,14 @@ export class Game {
     if (!this.player) return { title: '', text: '' };
     if (prog.boss) return { title: 'Free roam', text: 'Vellano is cleansed. Hunt relics and stragglers.', sub: `Relics ${Object.keys(prog.relics).length}/${this.interactions.relics.length}` };
     const A = this.director.arena;
-    if (A && !A.done) return { title: A.rift.name, text: 'Survive the onslaught and seal the rift.', pos: { x: A.rift.x, z: A.rift.z } };
+    if (A && !A.done) return { title: A.rift.name, text: 'Survive the onslaught and seal the rift.' };
     const nRifts = Object.values(prog.rifts).filter(Boolean).length;
     if (nRifts >= 3) {
       const c = city.cathedral.arena;
-      return { title: 'The Cardinal of Ash', text: 'Confront the Cardinal before the cathedral.', pos: { x: c.x, z: c.z } };
+      return { title: 'The Cardinal of Ash', text: 'Confront the Cardinal before the cathedral.', pos: { x: c.x, y: 3, z: c.z } };
     }
     const vp0 = city.viewpoints.find((v) => v.id === 'vp_south');
-    if (!prog.viewpoints.vp_south) return { title: 'A View of the Damned', text: `Climb the ${vp0.name} and synchronize.`, sub: 'Viewpoints reveal the city and serve as checkpoints.', pos: { x: vp0.x, z: vp0.z } };
+    if (!prog.viewpoints.vp_south) return { title: 'A View of the Damned', text: `Climb the ${vp0.name} and synchronize.`, sub: 'Viewpoints reveal the city and serve as checkpoints.', pos: { x: vp0.perch.x, y: vp0.perch.y + 1.5, z: vp0.perch.z } };
     // nearest open rift
     let best = null, bd = Infinity;
     for (const r of city.rifts) {
@@ -251,7 +252,7 @@ export class Game {
       const d = Math.hypot(r.x - p.pos.x, r.z - p.pos.z);
       if (d < bd) { bd = d; best = r; }
     }
-    return { title: `Close the Hell Rifts (${nRifts}/3)`, text: `Strike the Rift Heart at ${best.name}.`, sub: `${Math.round(bd)} m · Synced viewpoints: ${Object.keys(prog.viewpoints).length}/${city.viewpoints.length}`, pos: { x: best.x, z: best.z } };
+    return { title: `Close the Hell Rifts (${nRifts}/3)`, text: `Strike the Rift Heart at ${best.name}.`, sub: `Synced viewpoints: ${Object.keys(prog.viewpoints).length}/${city.viewpoints.length}`, pos: { x: best.x, y: 6, z: best.z } };
   }
 
   // ------------------------------------------------------------ world events
@@ -424,6 +425,10 @@ export class Game {
       setTimeout(() => this.ui.hint('Jump over his stomp shockwaves, dodge the meteors, and parry his sweeps. <b>Snare</b> and <b>Hex</b> still bite.', 9), 3000);
     });
     ev.on('bossPhase', (ph) => this.ui.banner(ph === 1 ? 'HE BURNS BRIGHTER' : 'THE CARDINAL RAGES', ''));
+    ev.on('bossKneel', () => {
+      if (!this.kneelHinted) { this.kneelHinted = true; this.ui.hint('The Cardinal kneels, exhausted! Get close and press <b>F</b> to strike his burning heart.', 6); }
+      else this.ui.notify('The Cardinal kneels: strike now!', 'loot');
+    });
   }
 
   bindGlobal() {
@@ -575,6 +580,27 @@ export class Game {
     }
   }
 
+  /** Ambient beds: city wind everywhere, crackle at the nearest fire. */
+  updateAmbience() {
+    const a = this.audio;
+    if (!a.ready) return;
+    if (!this.windLoop) this.windLoop = a.loop('wind', { volume: 0.35 });
+    const p = this.player;
+    if (!p) return;
+    let best = null, bd = 14;
+    for (const f of this.city.fires) {
+      if (f.candle) continue;
+      const d = Math.hypot(f.x - p.pos.x, f.y - p.pos.y, f.z - p.pos.z);
+      if (d < bd) { bd = d; best = f; }
+    }
+    if (best) {
+      if (!this.fireLoop) this.fireLoop = a.loop('fireCrackle', { pos: best, volume: 0.6 });
+      this.fireLoop.setPos?.(best);
+      this.fireLoop.setVolume?.(0.7 * (1 - bd / 14));
+    } else if (this.fireLoop) this.fireLoop.setVolume?.(0);
+    this.windLoop.setVolume?.(p.pos.y > 8 ? 0.6 : 0.3);
+  }
+
   setMusic(mode) {
     if (this.musicMode === mode) return;
     this.musicMode = mode;
@@ -671,11 +697,12 @@ export class Game {
     }
     this.lightning = Math.max(0, (this.lightning || 0) - dt * 3);
     g.uFlash.value = flash * 0.05;
-    this.renderer.hemi.intensity = 0.85 + flash * 0.8;
+    this.renderer.hemi.intensity = 1.2 + flash * 0.8;
     this.renderer.updateShadow(this.focus);
     this.renderer.render();
     if (this.state === 'playing' || this.state === 'paused') this.ui.update(dt);
     this.updateMusic();
+    if (this.state === 'playing') this.updateAmbience();
   }
 }
 

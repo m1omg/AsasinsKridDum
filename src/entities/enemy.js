@@ -80,7 +80,12 @@ export class Enemy {
     this.vy = 0;
     this.spawnT = opts.spawnIn ? 1.1 : 0;
     if (opts.spawnIn) this.setState('spawn');
-    if (opts.alerted) { this.awareness = 1; this.alerted = true; this.engage(false); }
+    if (opts.alerted) {
+      this.awareness = 1;
+      this.alerted = true;
+      if (game.player) { this.lastSeen.copy(game.player.pos); this.lastSeenT = this.t; }
+      this.engage(false);
+    }
     this.idleAnimT = rand(4, 12);
   }
 
@@ -173,7 +178,7 @@ export class Enemy {
       this.lastSeen.copy(p.pos);
       this.lastSeenT = this.t;
       if (!this.alerted) {
-        let rate = dist < 4 ? 2.4 : dist < 9 ? 1.25 : lerp(1.0, 0.3, clamp((dist - 9) / Math.max(1, d.view - 9), 0, 1));
+        let rate = dist < 4 ? 1.9 : dist < 9 ? 0.95 : lerp(0.8, 0.25, clamp((dist - 9) / Math.max(1, d.view - 9), 0, 1));
         if (p.sneaking) rate *= 0.45;
         if (p.sprinting) rate *= 1.7;
         if (p.isAttacking && p.isAttacking()) rate *= 3;
@@ -339,11 +344,12 @@ export class Enemy {
       this.setState('search');
       return;
     }
-    const tx = this.seesPlayer || this.arena ? p.pos.x : this.lastSeen.x;
-    const tz = this.seesPlayer || this.arena ? p.pos.z : this.lastSeen.z;
+    const knows = this.seesPlayer || this.arena;
+    const tx = knows ? p.pos.x : this.lastSeen.x;
+    const tz = knows ? p.pos.z : this.lastSeen.z;
     const toYaw = yawTo(this.pos.x, this.pos.z, tx, tz);
     this.want.face = toYaw;
-    const dy = p.pos.y - this.pos.y;
+    const dy = (knows ? p.pos.y : this.lastSeen.y) - this.pos.y;
 
     if (d.flies) return this.flyCombat(dt, dp, dy);
 
@@ -354,11 +360,13 @@ export class Enemy {
     }
 
     const reachable = Math.abs(dy) < 1.2 || (dy < 0 && this.onRoof);
+    // distance to where we believe the player is (no wallhacks)
+    const dT = Math.hypot(tx - this.pos.x, tz - this.pos.z);
     if (!reachable) {
       this.unreachableT += dt;
-      if (d.climbs && this.tryClimbToward(p)) return;
+      if (d.climbs && this.tryClimbToward(knows ? p.pos : this.lastSeen)) return;
       // wait below / near the player
-      const gx = p.pos.x, gz = p.pos.z;
+      const gx = tx, gz = tz;
       if (dp > 5) this.chase(gx, gz, d.run * 0.8, dt);
       if (this.unreachableT > 14 && !this.arena) { this.setState('search'); this.unreachableT = 0; }
       return;
@@ -367,22 +375,32 @@ export class Enemy {
     // ranged types keep their distance
     if (d.keepAway) {
       const [lo, hi] = d.keepAway;
-      if (dp < lo) this.steer(this.pos.x - (tx - this.pos.x), this.pos.z - (tz - this.pos.z), d.run * 0.8);
-      else if (dp > hi) this.chase(tx, tz, d.run, dt);
+      if (!knows) this.chase(tx, tz, d.run, dt);
+      else if (dT < lo) this.steer(this.pos.x - (tx - this.pos.x), this.pos.z - (tz - this.pos.z), d.run * 0.8);
+      else if (dT > hi) this.chase(tx, tz, d.run, dt);
       else this.strafe(tx, tz, d.walk * 1.4, dt);
       return;
     }
     const director = this.game.director;
-    const meleeRange = Math.max(...d.attacks.filter((a) => !a.ranged).map((a) => a.range[1]));
-    if (dp > meleeRange + 2.5) this.chase(tx, tz, d.run, dt);
+    if (!knows && dT < 2.5) { this.setState('search'); return; }
+    const meleeRange = this.meleeRange();
+    if (dT > meleeRange + 2.5) this.chase(tx, tz, d.run, dt);
     else if (director.hasMeleeToken(this) || director.freeMeleeTokens() > 0) {
-      if (dp > meleeRange - 0.4) this.chase(tx, tz, d.run, dt);
+      if (dT > meleeRange - 0.4) this.chase(tx, tz, d.run, dt);
     } else {
       // wait our turn: circle the player at a distance
-      if (dp < 3.2) this.steer(this.pos.x - (tx - this.pos.x), this.pos.z - (tz - this.pos.z), d.walk);
-      else if (dp > 5) this.chase(tx, tz, d.run * 0.8, dt);
+      if (dT < 3.2) this.steer(this.pos.x - (tx - this.pos.x), this.pos.z - (tz - this.pos.z), d.walk);
+      else if (dT > 5) this.chase(tx, tz, d.run * 0.8, dt);
       else this.strafe(tx, tz, d.walk, dt);
     }
+  }
+
+  meleeRange() {
+    if (this._meleeRange === undefined) {
+      const close = this.def.attacks.filter((a) => !a.ranged && !a.charge && !a.leap && !a.summon);
+      this._meleeRange = close.length ? Math.max(...close.map((a) => a.range[1])) : 2;
+    }
+    return this._meleeRange;
   }
 
   pickAttack(dp, dy) {
@@ -458,6 +476,7 @@ export class Enemy {
       else if (!this.attackHit) this.meleeCheck(a);
       if (a.aoe && !this.aoeFx) {
         this.aoeFx = true;
+        if (a.shockwave) this.game.director.projectiles.shockwave(this.pos.x, this.pos.y, this.pos.z, 26, 16);
         this.game.fx?.ringBurst(this.pos.x, this.pos.y + 0.2, this.pos.z, a.reach, [2.4, 0.7, 0.2], 80);
         this.game.fx?.dust(this.pos.x, this.pos.y, this.pos.z, 24, 2);
         this.game.audio?.play(this.def.boss ? 'bossStomp' : 'bruteSlam', { pos: this.pos, volume: 1 });
@@ -481,6 +500,15 @@ export class Enemy {
       this.telegraph = null;
       this.releaseToken();
       this.setState('combat');
+      // the Cardinal tires after a flurry: he kneels, open to a heart strike
+      if (this.def.boss) {
+        this.attackCount = (this.attackCount || 0) + 1;
+        if (this.attackCount >= (this.phase >= 2 ? 5 : 4)) {
+          this.attackCount = 0;
+          this.daze(4.2);
+          this.game.events.emit('bossKneel', this);
+        }
+      }
     }
     void dt;
   }
@@ -612,11 +640,11 @@ export class Enemy {
   }
 
   // ------------------------------------------------------------ imp climbing
-  tryClimbToward(p) {
+  tryClimbToward(tp) {
     if (this.onRoof || this.climbCooldown > this.t) return false;
-    const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z;
+    const dx = tp.x - this.pos.x, dz = tp.z - this.pos.z;
     const d = Math.hypot(dx, dz);
-    if (d > 18) { this.chase(p.pos.x, p.pos.z, this.def.run, 1 / 60); return true; }
+    if (d > 18) { this.chase(tp.x, tp.z, this.def.run, 1 / 60); return true; }
     const nx = dx / d, nz = dz / d;
     const h = this.col.raycast(this.pos.x, this.pos.y + 1.0, this.pos.z, nx, 0, nz, 1.4, climbFilter, _hit);
     if (h && h.c && Math.abs(h.ny) < 0.5) {
@@ -626,7 +654,7 @@ export class Enemy {
       return true;
     }
     // approach the building the player stands on
-    this.chase(p.pos.x, p.pos.z, this.def.run, 1 / 60);
+    this.chase(tp.x, tp.z, this.def.run, 1 / 60);
     return true;
   }
 
@@ -728,7 +756,7 @@ export class Enemy {
     this.releaseToken();
     this.dazed = dur;
     this.setState('dazed');
-    this.anim = { clip: 'dazed', t: 0, loop: 1.2 };
+    this.anim = { clip: this.def.boss ? 'kneel' : 'dazed', t: 0, loop: 1.2 };
   }
 
   enterGlory() {

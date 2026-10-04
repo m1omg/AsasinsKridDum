@@ -29,7 +29,7 @@ export const ENEMY_TYPES = {
     ],
   },
   hound: {
-    name: 'Hellhound', hp: 85, poise: 34, radius: 0.42, height: 1.1, mass: 1.2,
+    name: 'Hellhound', hp: 85, poise: 34, radius: 0.52, height: 1.4, mass: 1.2, modelScale: 1.3,
     walk: 2.0, run: 8.4, turn: 10, view: 24, fov: 140 * D, hearing: 16, eyeY: 0.95,
     skel: 'hound', canAssassinate: true, smell: 5,
     sounds: { alert: 'houndBark', pain: 'demonPain', death: 'demonDeath', idle: 'houndGrowl' },
@@ -164,6 +164,11 @@ export const ENEMY_CLIPS = {
   death: [
     { t: 0, pose: { spine: [-0.3, 0, 0], head: [-0.4, 0, 0], armL: [-0.6, 0, 1.0], armR: [-0.6, 0, -1.0] } },
     { t: 1, pose: { spine: [0.2, 0, 0], head: [0.4, 0.5, 0], armL: [-0.2, 0, 1.4], armR: [0.2, 0, -1.2], thighL: [-0.3, 0, 0.2], shinL: [0.6, 0, 0], thighR: [-0.1, 0, -0.2] } },
+  ],
+  kneel: [
+    { t: 0, pose: { spine: [0.6, 0, 0], chest: [0.25, 0, 0], head: [0.5, 0, 0], thighL: [-1.45, 0, 0.15], shinL: [1.5, 0, 0], thighR: [-0.1, 0, -0.15], shinR: [2.3, 0, 0], footR: [0.6, 0, 0], armL: [-0.6, 0, 0.3], foreL: [-0.4, 0, 0], armR: [-0.9, 0, -0.2], foreR: [-0.6, 0, 0] } },
+    { t: 0.5, pose: { spine: [0.66, 0, 0], chest: [0.28, 0, 0], head: [0.55, 0.1, 0], thighL: [-1.45, 0, 0.15], shinL: [1.5, 0, 0], thighR: [-0.1, 0, -0.15], shinR: [2.3, 0, 0], footR: [0.6, 0, 0], armL: [-0.6, 0, 0.3], foreL: [-0.4, 0, 0], armR: [-0.95, 0, -0.2], foreR: [-0.6, 0, 0] } },
+    { t: 1, pose: { spine: [0.6, 0, 0], chest: [0.25, 0, 0], head: [0.5, 0, 0], thighL: [-1.45, 0, 0.15], shinL: [1.5, 0, 0], thighR: [-0.1, 0, -0.15], shinR: [2.3, 0, 0], footR: [0.6, 0, 0], armL: [-0.6, 0, 0.3], foreL: [-0.4, 0, 0], armR: [-0.9, 0, -0.2], foreR: [-0.6, 0, 0] } },
   ],
   grabbed: [
     { t: 0, pose: { spine: [-0.45, 0, 0], chest: [-0.25, 0, 0], head: [-0.6, 0, 0], armL: [-0.6, 0, 0.7], armR: [-0.6, 0, -0.7], foreL: [-0.8, 0, 0], foreR: [-0.8, 0, 0], thighL: [-0.3, 0, 0], shinL: [0.6, 0, 0] } },

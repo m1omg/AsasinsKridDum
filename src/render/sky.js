@@ -103,6 +103,23 @@ export class Sky {
     this.nextLightning = 4;
   }
 
+  /** Bake the sky into a prefiltered environment map (reflections on metal, ambient specular). */
+  bakeEnvironment(renderer, scene, intensity = 0.55) {
+    try {
+      const envScene = new THREE.Scene();
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), this.dome.material);
+      envScene.add(dome);
+      const pm = new THREE.PMREMGenerator(renderer);
+      const rt = pm.fromScene(envScene, 0.02, 0.1, 200);
+      pm.dispose();
+      scene.environment = rt.texture;
+      scene.environmentIntensity = intensity;
+      dome.geometry.dispose();
+    } catch (e) {
+      console.warn('environment bake failed', e);
+    }
+  }
+
   update(dt, camera, time) {
     this.dome.position.copy(camera.position);
     this.uniforms.uTime.value = time;

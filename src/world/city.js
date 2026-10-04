@@ -35,8 +35,8 @@ const TOWER_DEFS = [
 ];
 
 const PLASTER_COLORS = [
-  [0.93, 0.78, 0.55], [0.86, 0.6, 0.42], [0.95, 0.89, 0.76], [0.9, 0.68, 0.6],
-  [0.94, 0.84, 0.58], [0.82, 0.55, 0.4], [0.88, 0.85, 0.8], [0.78, 0.66, 0.52], [0.92, 0.74, 0.5],
+  [0.9, 0.8, 0.64], [0.84, 0.66, 0.54], [0.93, 0.9, 0.82], [0.88, 0.72, 0.68],
+  [0.92, 0.85, 0.66], [0.8, 0.62, 0.52], [0.86, 0.85, 0.82], [0.76, 0.7, 0.62], [0.9, 0.78, 0.6],
 ];
 const SHUTTER_COLORS = [0x3d5a3a, 0x5a3a24, 0x2f5357, 0x6a2a22, 0x4a4a3a];
 const FABRIC_COLORS = [[0.7, 0.12, 0.08], [0.15, 0.25, 0.5], [0.75, 0.6, 0.2], [0.25, 0.45, 0.25], [0.55, 0.15, 0.35]];
@@ -941,6 +941,39 @@ export class City {
     this.group.add(roseMesh);
     this.roseWindow = roseMesh;
     this.B('windowDark', 0, -6).box(-3, 0, -5.98, 3, 7.5, -5.9, WHITE, 1, 16);
+    // rose window tracery: outer frame, inner ring and spokes
+    const roseFrame = new MeshBuilder();
+    const stoneTint = [0.85, 0.82, 0.76];
+    const ringGeo = (r, t) => new THREE.TorusGeometry(r, t, 6, 40);
+    roseFrame.addGeometry(ringGeo(3.35, 0.32), new THREE.Matrix4().makeTranslation(0, 19, -5.75), stoneTint);
+    roseFrame.addGeometry(ringGeo(1.2, 0.16), new THREE.Matrix4().makeTranslation(0, 19, -5.8), stoneTint);
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const m = new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(a) * 2.2, 19 + Math.sin(a) * 2.2, -5.82), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), a + Math.PI / 2), new THREE.Vector3(1, 1, 1));
+      roseFrame.addGeometry(new THREE.BoxGeometry(0.16, 2.1, 0.14), m, stoneTint);
+    }
+    const rf = new THREE.Mesh(roseFrame.toGeometry(), this.mats.stone);
+    rf.castShadow = true;
+    this.group.add(rf);
+    // portal: stepped stone jambs + round arch over the door
+    const marbleG = [0.5, 0.58, 0.52];
+    for (const sx of [-1, 1]) {
+      this.block('stone', marbleG, sx * 3 - 0.45, 0, -6.4, sx * 3 + 0.45, 7.5, -5.7, { kind: 'pilaster', uv: 2 });
+    }
+    const arch = new THREE.Mesh(new THREE.TorusGeometry(3.0, 0.42, 8, 24, Math.PI), this.mats.stone);
+    arch.position.set(0, 7.5, -5.85);
+    const archGeo = arch.geometry;
+    archGeo.setAttribute('color', new THREE.Float32BufferAttribute(new Array(archGeo.attributes.position.count * 3).fill(0.6), 3));
+    this.group.add(arch);
+    // polychrome marble bands and side portals
+    for (const y of [8.6, 13.4, 26.2]) this.B('stone', 0, -6).box(-12.2, y, -6.95, 12.2, y + 0.45, -5.75, marbleG, 2, 55);
+    for (const sx of [-1, 1]) {
+      this.B('windowDark', sx * 8.5, -6).box(sx * 8.5 - 1.1, 0, -5.98, sx * 8.5 + 1.1, 4.2, -5.9, WHITE, 1, 16);
+      this.B('stone', sx * 8.5, -6).box(sx * 8.5 - 1.4, 4.2, -6.0, sx * 8.5 + 1.4, 4.7, -5.75, marbleG, 2, 55);
+      this.B('windowDark', sx * 8.5, -6).box(sx * 8.5 - 0.7, 15, -5.98, sx * 8.5 + 0.7, 21, -5.9, WHITE, 1, 16);
+      this.B('stone', sx * 8.5, -6).box(sx * 8.5 - 1.0, 14.7, -6.0, sx * 8.5 + 1.0, 15.0, -5.75, marbleG, 2, 55);
+    }
+    this.B('gold', 0, -6).cylinder(0, -6.4, 33, 35.5, 0.35, 0.02, 8, WHITE, 1, false);
     this.cathedralDoor = { x: 0, z: -5.5 };
     // steps
     for (let k = 0; k < 3; k++) {
@@ -948,7 +981,7 @@ export class City {
       this.block('stone', [0.82, 0.78, 0.72], -14, 0, z0, 14, 0.9 - k * 0.3, z0 + 1.0, { kind: 'steps', uv: 2 });
     }
     // facade side pilasters
-    for (const px of [-11.5, -6, 6, 11.5]) this.block('stone', [0.8, 0.76, 0.7], px - 0.5, 0, -6.2, px + 0.5, 26, -5.6, { kind: 'pilaster', uv: 2 });
+    for (const px of [-11.5, -5.2, 5.2, 11.5]) this.block('stone', [0.55, 0.62, 0.56], px - 0.5, 0, -6.2, px + 0.5, 26, -5.6, { kind: 'pilaster', uv: 2 });
     this.footprints.push({ x0: -10, z0: -36, x1: 10, z1: -6, h: naveH + 6, kind: 'cathedral' });
     this.footprints.push({ x0: -21, z0: -29, x1: 21, z1: -17, h: naveH + 5, kind: 'cathedral' });
     this.footprints.push({ x0: -16, z0: -33, x1: 16, z1: -8, h: 13, kind: 'cathedral' });

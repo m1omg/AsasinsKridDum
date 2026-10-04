@@ -211,12 +211,26 @@ const C = {
     return null;
   },
 
-  // Witcher: Space rolls while in combat stance (unless sprinting)
+  // Witcher: Space rolls while fighting up close (locked on or a demon within
+  // a few metres). Sprinting always jumps, so rooftop escapes stay possible.
   consumeJumpForCombat() {
+    // Space at a synced perch = Leap of Faith (AC muscle memory)
+    if (this.prompt && this.prompt.kind === 'leap') { this.prompt.run(); return true; }
     if (!this.drawn || this.sprinting) return false;
-    if (!this.game.director.combatState().close) return false;
+    const locked = this.lockTarget && !this.lockTarget.dead && this.distTo(this.lockTarget) < 9;
+    if (!locked && this.nearestThreat(5.5) === null) return false;
     this.startDodge(true);
     return true;
+  },
+
+  nearestThreat(range) {
+    let best = null, bd = range;
+    for (const e of this.game.director.enemies) {
+      if (e.dead || !e.alerted) continue;
+      const d = this.distTo(e);
+      if (d < bd && Math.abs(e.pos.y - this.pos.y) < 2.5) { bd = d; best = e; }
+    }
+    return best;
   },
 
   // ------------------------------------------------------------ per tick
@@ -325,6 +339,12 @@ const C = {
       const d = Math.hypot(dx, dz);
       const dy = e.pos.y - this.pos.y;
       if (d > 7) continue;
+      // the kneeling Cardinal: climb up and strike his heart
+      if (e.def.boss && e.state === 'dazed' && (st === 'ground' || st === 'landroll') && d < 5.5) {
+        best = { kind: 'glory', enemy: e, label: 'Strike the Heart', boss: true };
+        bestD = -1;
+        continue;
+      }
       // glory kill (Doom)
       if ((st === 'ground' || st === 'landroll') && e.gloryable && d < 3.2 + (e.def.heavy ? 0.8 : 0) && Math.abs(dy) < 2.5) {
         if (d < bestD + 1) { best = { kind: 'glory', enemy: e, label: 'Glory Kill' }; bestD = d - 1; }
@@ -359,9 +379,14 @@ const C = {
       }
     }
     if (best) { this.prompt = best; return; }
+    if (st === 'hidden') { this.prompt = { kind: 'leaveHay', label: 'Leave the hay', run: () => this.exitHay() }; return; }
     // world interactions
     const it = game.interactions?.nearest(this);
     if (it) this.prompt = it;
+  },
+
+  hayAttackAvailable() {
+    return !!(this.prompt && this.prompt.kind === 'hayAssassinate');
   },
 
   doPrompt() {
@@ -1022,6 +1047,7 @@ const C = {
   // ------------------------------------------------------------ glory kills
   startGlory(e) {
     const game = this.game;
+    if (e.def.boss) return this.startBossStrike(e);
     this.glory = { e, from: this.pos.clone(), done: false, variant: Math.random() < 0.5 ? 1 : 2, hits: 0 };
     e.setState('grabbed');
     e.anim = { clip: 'grabbed', t: 0 };
@@ -1074,6 +1100,65 @@ const C = {
     }
     void dt;
   },
+};
+
+// The Cardinal's heart strike: leap onto the kneeling giant, blade into the
+// glowing heart (AC-style "assassinate the colossus"), big damage, not a kill.
+C.startBossStrike = function startBossStrike(e) {
+  const game = this.game;
+  this.bossStrike = { e, from: this.pos.clone(), done: false };
+  this.yaw = yawTo(this.pos.x, this.pos.z, e.pos.x, e.pos.z);
+  this.invuln = 2.2;
+  this.vel.set(0, 0, 0);
+  this.hiddenBladeOut = true;
+  this.anim = { clip: 'airAssassinate', t: 0, fast: true };
+  this.setState('bossStrike');
+  e.dazed = Math.max(e.dazed, 2.4);
+  game.camera.cinematic = { yaw: this.yaw + 1.3, pitch: 0.05, dist: 9, height: 2.5, shoulder: 0, until: 1.8, fov: 58, lookUp: 1.5 };
+  game.audio?.play('leap', { pos: this.pos, volume: 0.7 });
+  game.slowMo(0.6, 0.8);
+};
+
+C.st_bossStrike = function stBossStrike(dt) {
+  const S = this.bossStrike;
+  const e = S.e;
+  const u = clamp(this.stateTime / 1.5, 0, 1);
+  if (this.anim) this.anim.t = Math.min(1, u * 1.4);
+  const yaw = yawTo(S.from.x, S.from.z, e.pos.x, e.pos.z);
+  const tx = e.pos.x - Math.sin(yaw) * 1.4, tz = e.pos.z - Math.cos(yaw) * 1.4;
+  const ty = e.pos.y + 3.2;
+  const k = smoothstep(0, 0.45, u);
+  this.pos.x = lerp(S.from.x, tx, k);
+  this.pos.z = lerp(S.from.z, tz, k);
+  this.pos.y = u < 0.45 ? lerp(S.from.y, ty, k) + Math.sin(k * Math.PI) * 1.5 : u < 0.8 ? ty : lerp(ty, S.from.y, smoothstep(0.8, 1, u));
+  this.yaw = yaw;
+  if (u > 0.8) {
+    // drop back down in front of him
+    this.pos.x = lerp(tx, S.from.x * 0.4 + tx * 0.6, smoothstep(0.8, 1, u));
+    this.pos.z = lerp(tz, S.from.z * 0.4 + tz * 0.6, smoothstep(0.8, 1, u));
+  }
+  if (u >= 0.5 && !S.done) {
+    S.done = true;
+    const game = this.game;
+    game.fx.blood(e.pos.x, ty + 0.5, e.pos.z, Math.sin(yaw), Math.cos(yaw), 50, 2);
+    game.fx.explosion(e.pos.x - Math.sin(yaw) * 0.5, ty + 0.4, e.pos.z - Math.cos(yaw) * 0.5, 0.8);
+    game.audio?.play('gloryKill', { pos: e.pos, volume: 1 });
+    game.audio?.play('bossRoar', { pos: e.pos, volume: 0.9 });
+    game.hitStop(0.16);
+    game.camera.addShake(0.7);
+    e.takeHit(e.maxHp * 0.11 * this.dmgMul, { type: 'pierce', poise: 0, source: 'player' });
+    this.fury = Math.min(3, this.fury + 1);
+    game.events.emit('bossStruck', e);
+  }
+  if (u >= 1) {
+    const g = this.col.groundAt(this.pos.x, this.pos.z, P.FOOT_R, this.pos.y + 1);
+    this.pos.y = g.y;
+    this.hiddenBladeOut = false;
+    this.anim = null;
+    this.invuln = 0.6;
+    this.setState('ground');
+  }
+  void dt;
 };
 
 export function installCombat() {
