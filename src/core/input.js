@@ -1,7 +1,15 @@
 // Keyboard / mouse / gamepad input mapped to game actions.
-// Raw DOM events are queued and applied at the start of each fixed simulation
-// tick, so "pressed this tick" edges and input buffering are measured in
+// Raw DOM events are queued with their timestamps and applied at the start of
+// the first fixed simulation tick at or after the moment they happened, so
+// "pressed this tick" edges, parry timing and input buffering are measured in
 // simulation seconds and behave identically at any display refresh rate.
+
+/** Event time on the performance.now() clock (falls back if a browser reports another clock). */
+function stamp(e) {
+  const now = performance.now();
+  const t = e && e.timeStamp;
+  return t > 0 && Math.abs(now - t) < 1000 ? Math.min(t, now) : now;
+}
 
 export const DEFAULT_BINDINGS = {
   forward: ['KeyW'],
@@ -44,8 +52,9 @@ export class Input {
     this.bindings = structuredClone(DEFAULT_BINDINGS);
     this.codeToActions = new Map();
     this.rebuildMap();
-    this.queue = [];
-    this.physical = new Set();
+    this.queue = []; // flat triples: code, down, time (ms, performance.now clock)
+    this.physical = new Set(); // keys held right now
+    this.logical = new Set(); // keys held as of the last simulated tick
     this.actions = {};
     for (const a of Object.keys(this.bindings)) this.actions[a] = { down: false, pressedTick: -1, pressedAt: -1e9, releasedAt: -1e9, consumedAt: -1e9 };
     this.tickIndex = 0;
@@ -85,18 +94,18 @@ export class Input {
       if (!this.enabled) return;
       if (PREVENT.has(e.code) && (this.locked || this.gameActive)) e.preventDefault();
       if (e.code === 'Tab') e.preventDefault();
-      this._raw(e.code, true);
+      this._raw(e.code, true, stamp(e));
     });
-    this._on(win, 'keyup', (e) => this._raw(e.code, false));
+    this._on(win, 'keyup', (e) => this._raw(e.code, false, stamp(e)));
     this._on(this.target, 'mousedown', (e) => {
       this.lastDevice = 'kbm';
       if (!this.enabled) return;
       if (this.gameActive) e.preventDefault();
-      this._raw('Mouse' + e.button, true);
+      this._raw('Mouse' + e.button, true, stamp(e));
     });
     this._on(win, 'mouseup', (e) => {
       if (e.button === 3 || e.button === 4) e.preventDefault();
-      this._raw('Mouse' + e.button, false);
+      this._raw('Mouse' + e.button, false, stamp(e));
     });
     this._on(this.target, 'contextmenu', (e) => e.preventDefault());
     this._on(win, 'mousemove', (e) => {
@@ -110,8 +119,9 @@ export class Input {
       if (!this.enabled || !this.gameActive) return;
       e.preventDefault();
       const code = e.deltaY > 0 ? 'WheelDown' : 'WheelUp';
-      this._raw(code, true);
-      this._raw(code, false);
+      const t = stamp(e);
+      this._raw(code, true, t);
+      this._raw(code, false, t);
     }, { passive: false });
     this._on(document, 'pointerlockchange', () => {
       this.locked = document.pointerLockElement === this.target;
@@ -138,7 +148,7 @@ export class Input {
     if (document.pointerLockElement) document.exitPointerLock();
   }
 
-  _raw(code, down) {
+  _raw(code, down, time = performance.now()) {
     if (down) {
       if (this.physical.has(code) && !code.startsWith('Wheel')) return;
       this.physical.add(code);
@@ -146,34 +156,43 @@ export class Input {
       if (!this.physical.has(code) && !code.startsWith('Wheel')) return;
       this.physical.delete(code);
     }
-    this.queue.push(code, down);
+    this.queue.push(code, down, time);
   }
 
   releaseAll() {
     for (const code of [...this.physical]) this._raw(code, false);
   }
 
-  /** Called at the start of every fixed simulation tick. */
-  tick(simTime) {
+  /**
+   * Called at the start of every fixed simulation tick. `realTime` is the
+   * wall-clock moment (performance.now ms) the tick stands for; events that
+   * happened later stay queued for a later tick. Omit it to apply everything.
+   */
+  tick(simTime, realTime = Infinity) {
     this.tickIndex++;
     this.time = simTime;
     const q = this.queue;
-    for (let i = 0; i < q.length; i += 2) {
-      const acts = this.codeToActions.get(q[i]);
+    let i = 0;
+    for (; i < q.length; i += 3) {
+      if (q[i + 2] > realTime) break;
+      const code = q[i], down = q[i + 1];
+      if (down) this.logical.add(code); else this.logical.delete(code);
+      const acts = this.codeToActions.get(code);
       if (!acts) continue;
       for (const a of acts) {
         const st = this.actions[a];
-        if (q[i + 1]) {
+        if (down) {
           if (!st.down) { st.pressedTick = this.tickIndex; st.pressedAt = simTime; }
           st.down = true;
         } else {
           // only release when no other bound code is still held
-          const still = this.bindings[a].some((c) => this.physical.has(c));
+          const still = this.bindings[a].some((c) => this.logical.has(c));
           if (!still) { st.down = false; st.releasedAt = simTime; }
         }
       }
     }
-    q.length = 0;
+    if (i >= q.length) q.length = 0;
+    else if (i > 0) q.splice(0, i);
   }
 
   /** Pressed during the current tick. */
@@ -220,6 +239,11 @@ export class Input {
     for (const p of pads) if (p && p.connected) { gp = p; break; }
     if (!gp) { this.pad.connected = false; this.pad.lx = this.pad.ly = this.pad.rx = this.pad.ry = 0; return; }
     this.pad.connected = true;
+    // when the pad state changed (its own clock is performance.now); fall back to the previous poll
+    const now = performance.now();
+    const ts = gp.timestamp;
+    const when = ts > 0 && ts <= now && now - ts < 1000 ? ts : (this._lastPoll ?? now);
+    this._lastPoll = now;
     const dz = (v) => (Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82);
     const stick = (x, y) => {
       const m = Math.hypot(x, y);
@@ -237,7 +261,7 @@ export class Input {
       if (pressed !== this.pad.buttons[i]) {
         this.pad.buttons[i] = pressed;
         if (pressed) { active = true; for (const cb of this.anyKeyCallbacks) cb('Pad' + i); }
-        if (this.enabled) this._raw('Pad' + i, pressed);
+        if (this.enabled) this._raw('Pad' + i, pressed, when);
       }
     }
     if (active) this.lastDevice = 'pad';

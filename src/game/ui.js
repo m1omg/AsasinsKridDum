@@ -138,6 +138,7 @@ export class UI {
       <button class="btn" data-act="controls">Controls</button>
       <button class="btn" data-act="settings">Settings</button>
     </div>
+    <div class="device-note" hidden>Hellcreed needs a keyboard and mouse, or a gamepad. Touch controls aren't supported.</div>
   </div>
   <div class="credit">Textures, sky &amp; key art generated with Higgsfield · Built with Three.js</div>
 </div>
@@ -705,6 +706,10 @@ export class UI {
     if (id === 'title') {
       const cont = this.$('[data-act="continue"]');
       cont.style.display = this.game.hasSave() ? '' : 'none';
+      // touch-only devices (no mouse) can't play without a gamepad
+      let touchOnly = false;
+      try { touchOnly = matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches; } catch (_) { /* old browser */ }
+      this.$('#screen-title .device-note').hidden = !touchOnly;
     }
     this.updateFocus();
   }

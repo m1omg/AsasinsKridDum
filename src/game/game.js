@@ -58,7 +58,6 @@ export class Game {
     this.time = 0;
     this.realTime = 0;
     this.focus = new THREE.Vector3();
-    this.timeScaleFx = { stop: 0, slow: 0, slowScale: 1 };
     this.sightOn = false;
     this.sightK = 0;
     this.settings = this.loadSettings();
@@ -67,7 +66,7 @@ export class Game {
     this.musicMode = 'none';
     this.loop = new Loop({
       pre: (dt) => this.preFrame(dt),
-      update: (dt, t) => this.fixedUpdate(dt, t),
+      update: (dt, t, now) => this.fixedUpdate(dt, t, now),
       render: (dt, simDt, alpha) => this.renderFrame(dt, simDt, alpha),
     });
     this.ui.show('loading');
@@ -375,8 +374,9 @@ export class Game {
   }
 
   // ------------------------------------------------------------ timing fx
-  hitStop(dur) { this.timeScaleFx.stop = Math.max(this.timeScaleFx.stop, dur); }
-  slowMo(scale, dur) { this.timeScaleFx.slow = Math.max(this.timeScaleFx.slow, dur); this.timeScaleFx.slowScale = scale; }
+  // real-time durations; the loop applies them from the exact step that triggered them
+  hitStop(dur) { this.loop.hitStop(dur); }
+  slowMo(scale, dur) { this.loop.slowMo(scale, dur); }
 
   // ------------------------------------------------------------ events
   wireEvents() {
@@ -456,6 +456,7 @@ export class Game {
   pause(screen = 'pause') {
     if (this.state !== 'playing') return;
     this.state = 'paused';
+    this.loop.clearEffects();
     this.input.exitLock();
     this.input.releaseAll();
     this.audio.setPaused(true);
@@ -542,8 +543,8 @@ export class Game {
     this.input.pollGamepad();
   }
 
-  fixedUpdate(dt, t) {
-    this.input.tick(t);
+  fixedUpdate(dt, t, now) {
+    this.input.tick(t, now);
     if (this.state !== 'playing') return;
     this.tick++;
     this.time += dt;
@@ -636,12 +637,6 @@ export class Game {
   renderFrame(dt, simDt, alpha) {
     this.realTime += dt;
     if (this.state === 'loading') return;
-    // timing effects (real time based)
-    const tf = this.timeScaleFx;
-    let scale = 1;
-    if (tf.stop > 0) { tf.stop -= dt; scale = 0.06; }
-    else if (tf.slow > 0) { tf.slow -= dt; scale = tf.slowScale; }
-    this.loop.timeScale = this.state === 'playing' ? scale : 1;
     if (this.combatMusicT > 0) this.combatMusicT -= dt;
 
     const playing = this.state === 'playing' || this.state === 'paused' || this.state === 'dead' || this.state === 'victory' || this.state === 'intro';
