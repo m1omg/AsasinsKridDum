@@ -174,9 +174,26 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 #screen-death { flex-direction: column; gap: 16px; background: radial-gradient(ellipse at center, rgba(40, 0, 0, 0.55), rgba(0, 0, 0, 0.9)); }
 #screen-death p { font: italic 20px var(--body); color: var(--ink-dim); }
 
-.grid2 { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 22px; font: 17px var(--body); align-items: center; }
-.grid2 .h { font: 600 12px var(--heading); color: var(--gold); letter-spacing: 0.12em; text-transform: uppercase; }
-.grid2 .k { font: 600 13px var(--heading); color: var(--gold-hi); white-space: nowrap; }
+/* ------------------------------------------------------------ remapping */
+.controls-panel { width: 880px; display: flex; flex-direction: column; overflow: hidden; }
+.bind-head, .bind-foot { flex: none; }
+.bind-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; padding-right: 6px; }
+.bind-foot { border-top: 1px solid var(--line); margin-top: 8px; }
+.panel p.bind-help, .panel p.bind-note { font-size: 16px; color: var(--ink-dim); }
+.panel p.bind-status { min-height: 1.45em; font: italic 17px/1.4 var(--body); color: var(--gold-hi); margin: 4px 0 8px; }
+.panel p.bind-status.warn { color: #ffab7a; }
+.howto b, .bind-help b, .bind-note b { font: 700 13px var(--heading); color: #1a0d07; background: var(--gold-hi); padding: 1px 6px; border-radius: 3px; margin: 0 2px; display: inline-block; line-height: 1.4; box-shadow: 0 1px 0 #7a5a20; }
+.binds { display: grid; grid-template-columns: minmax(180px, 1.5fr) repeat(3, minmax(104px, 1fr)); gap: 4px 8px; align-items: center; min-width: 560px; }
+.binds .h { font: 600 12px var(--heading); color: var(--gold); letter-spacing: 0.12em; text-transform: uppercase; }
+.binds .grp { grid-column: 1 / -1; font: 600 13px var(--heading); color: var(--gold); letter-spacing: 0.14em; text-transform: uppercase; margin-top: 12px; padding-bottom: 3px; border-bottom: 1px solid var(--line); }
+.binds .act { font: 17px/1.25 var(--body); color: var(--ink); }
+.btn.slot { font: 600 13px var(--heading); letter-spacing: 0.03em; text-transform: none; padding: 6px 8px; min-height: 34px; min-width: 0; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(216, 164, 70, 0.3); color: var(--gold-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+.btn.slot.empty { color: var(--ink-dim); }
+.btn.slot:hover, .btn.slot.focus { border-color: var(--gold-hi); background: rgba(150, 40, 18, 0.55); color: #fff3d8; }
+.btn.slot.capturing { border-color: #fff3d8; color: #fff3d8; background: rgba(190, 60, 20, 0.65); animation: slot-pulse 0.9s ease-in-out infinite alternate; }
+@keyframes slot-pulse { from { box-shadow: 0 0 0 rgba(255, 140, 60, 0); } to { box-shadow: 0 0 14px rgba(255, 140, 60, 0.75); } }
+@media (prefers-reduced-motion: reduce) { .btn.slot.capturing { animation: none; box-shadow: 0 0 10px rgba(255, 140, 60, 0.75); } }
+.bind-buttons { display: flex; gap: 12px; flex-wrap: wrap; }
 .settings-row { display: grid; grid-template-columns: 200px 1fr 60px; align-items: center; gap: 14px; margin: 10px 0; font: 18px var(--body); }
 .settings-row input[type=range] { width: 100%; accent-color: var(--gold); }
 .settings-row select { background: #1c100b; color: var(--ink); border: 1px solid var(--line); font: 16px var(--body); padding: 4px 8px; }
@@ -206,8 +223,6 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
   .hint { left: 12px; right: 12px; bottom: 70px; max-width: none; }
   .settings-row { grid-template-columns: 1fr; gap: 4px; }
   .panel { padding: 18px 16px; }
-  .grid2 { grid-template-columns: 1fr auto; }
-  .grid2 .pad { display: none; }
   #screen-title .content { left: 16px; right: 16px; }
 }
 [hidden] { display: none !important; }

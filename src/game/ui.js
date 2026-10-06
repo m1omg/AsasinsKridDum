@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { SIGILS } from '../entities/playerCombat.js';
 import { TITLE_URL } from '../render/textures.js';
 import { clamp } from '../core/math.js';
+import { DEFAULT_SLOTS, RESERVED, PAD_SLOT, isPadCode, keyLabel } from '../core/input.js';
 
 // DOM HUD + menus. HUD values update every rendered frame (cheap writes only
 // when values change); markers are pooled absolutely-positioned elements.
@@ -38,27 +39,36 @@ const UPGRADES = [
 ];
 export { UPGRADES };
 
-const CONTROLS = [
-  ['Move', 'W A S D', 'Left stick'],
-  ['Camera', 'Mouse', 'Right stick'],
-  ['Sprint / free-run (auto leaps)', 'Shift (hold)', 'RT'],
-  ['Jump / climb / ledge leap', 'Space', 'A'],
-  ['Roll (sword drawn, near demons)', 'Space', 'A'],
-  ['Sneak', 'C', 'L3'],
-  ['Fast attack (combo)', 'Left mouse', 'X'],
-  ['Strong attack (hold = Rend)', 'R  or  Shift + Left mouse', 'Y'],
-  ['Block (hold) / Parry (time it)', 'Right mouse', 'LT'],
-  ['Dodge', 'E', 'B'],
-  ['Cast Sigil', 'Q', 'RB'],
-  ['Select Sigil', '1-5 / Mouse wheel', 'D-pad left/right'],
-  ['Assassinate / Glory Kill / Interact', 'F', 'LB'],
-  ['Throwing knife', 'G', 'D-pad up'],
-  ['Blood Tonic (heal)', 'H', 'D-pad down'],
-  ['Lock on target', 'Middle mouse / Z', 'R3'],
-  ['Ashen Sight (see demons through walls)', 'V', 'View / Back'],
-  ['Map', 'M / Tab', 'Pause menu'],
-  ['Pause', 'Esc / P', 'Start'],
+// Remappable actions as they appear on the Controls screen.
+const ACTION_GROUPS = [
+  ['Movement', [
+    ['forward', 'Move forward'], ['back', 'Move back'], ['left', 'Move left'], ['right', 'Move right'],
+    ['sprint', 'Sprint and free-run (hold)'], ['jump', 'Jump, climb and leap; roll in a fight'], ['sneak', 'Sneak'],
+  ]],
+  ['Combat', [
+    ['attack', 'Fast attack'], ['heavy', 'Strong attack (hold for Rend)'], ['block', 'Block (hold) or parry (tap)'],
+    ['dodge', 'Dodge'], ['lock', 'Lock on to a demon'],
+  ]],
+  ['Stealth', [
+    ['interact', 'Assassinate, Glory Kill, interact'], ['sight', 'Ashen Sight'],
+  ]],
+  ['Sigils and items', [
+    ['cast', 'Cast Sigil'], ['sigilNext', 'Next Sigil'], ['sigilPrev', 'Previous Sigil'],
+    ...SIGILS.map((sg, i) => [`sigil${i + 1}`, `Choose ${sg.name}`]),
+    ['knife', 'Throwing knife'], ['tonic', 'Blood Tonic (heal)'],
+  ]],
+  ['Camera keys', [
+    ['lookLeft', 'Turn camera left'], ['lookRight', 'Turn camera right'], ['lookUp', 'Look up'], ['lookDown', 'Look down'],
+  ]],
+  ['Menus', [
+    ['map', 'Map'], ['pause', 'Pause (Esc always pauses too)'],
+  ]],
 ];
+const ACTION_NAME = Object.fromEntries(ACTION_GROUPS.flatMap(([, list]) => list));
+const SLOT_NAMES = ['first key', 'second key', 'gamepad button'];
+const CAPTURE_MS = 8000;
+
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const el = (html) => {
   const t = document.createElement('template');
@@ -182,15 +192,21 @@ export class UI {
   <div class="sep"></div><button class="btn small" data-act="back">Back</button>
 </div></div>
 
-<div class="screen dim" id="screen-controls"><div class="panel" style="width:760px">
-  <h2>Controls</h2><div class="sep"></div>
-  <div class="grid2"><span class="h">Action</span><span class="h">Keyboard &amp; mouse</span><span class="h pad">Gamepad</span>
-  ${CONTROLS.map(([a, k, p]) => `<span>${a}</span><span class="k">${k}</span><span class="k pad">${p}</span>`).join('')}</div>
-  <h3>How to play</h3>
-  <p>Hold <b>Shift</b> and run at a wall to climb it; at a ledge press <b>W</b> or <b>Space</b> to pull up. Sprint off a roof edge to leap to the next rooftop automatically. Land in hay to break a fall and hide.</p>
-  <p>Demons that spot you fill a meter above their heads: yellow means suspicious, red means you've been seen. Sneak (<b>C</b>), stay above their line of sight and strike unaware demons with <b>F</b> for an instant assassination, even from above or from inside a hay cart.</p>
-  <p>In open combat, demons flash <span style="color:#ffd35a">yellow</span> before a parryable strike: tap block just before it lands to parry and counter. <span style="color:#ff5a4a">Red</span> attacks can't be blocked, so dodge or roll. Badly wounded demons stagger and glow: press <b>F</b> for a Glory Kill that showers health. Burning demons drop armor; assassinations drop knives.</p>
-  <div class="sep"></div><button class="btn small" data-act="back">Back</button>
+<div class="screen dim" id="screen-controls"><div class="panel controls-panel">
+  <div class="bind-head">
+    <h2>Controls</h2>
+    <p class="bind-help">To change a control, select one of its boxes, then press the key, mouse button or gamepad button you want. Each action takes two keys and one gamepad button. Right-click a box or press <b>Delete</b> to clear it. Changes save automatically.</p>
+    <p class="bind-status" role="status" aria-live="polite"></p>
+  </div>
+  <div class="bind-scroll">
+    <div class="binds">${this.bindsTemplate()}</div>
+    <h3>How to play</h3>
+    <div class="howto"></div>
+  </div>
+  <div class="bind-foot">
+    <p class="bind-note">The mouse and right stick turn the camera; the left stick moves. <b>Esc</b> always pauses.</p>
+    <div class="bind-buttons"><button class="btn small" data-act="resetBinds" data-r="${this.bindRows}" data-c="0">Reset to defaults</button><button class="btn small" data-act="back" data-r="${this.bindRows}" data-c="1">Back</button></div>
+  </div>
 </div></div>
 
 <div class="screen dim" id="screen-settings"><div class="panel" style="width:640px">
@@ -217,6 +233,151 @@ export class UI {
   <div class="stats"></div>
   <div class="menu" style="margin:0 auto"><button class="btn" data-act="freeroam">Keep exploring</button><button class="btn" data-act="title">Title screen</button></div>
 </div></div>`;
+  }
+
+  // ------------------------------------------------------------ remapping
+  bindsTemplate() {
+    let html = '<span class="h">Action</span><span class="h">Key</span><span class="h">Second key</span><span class="h">Gamepad</span>';
+    let r = 0;
+    for (const [group, list] of ACTION_GROUPS) {
+      html += `<span class="grp">${esc(group)}</span>`;
+      for (const [a, name] of list) {
+        html += `<span class="act" id="bind-${a}">${esc(name)}</span>`;
+        for (let i = 0; i < 3; i++) {
+          html += `<button class="btn slot" data-act="bind" data-a="${a}" data-s="${i}" data-r="${r}" data-c="${i}" aria-describedby="bind-${a}"></button>`;
+        }
+        r++;
+      }
+    }
+    this.bindRows = r;
+    return html;
+  }
+
+  /** Write the current bindings into the Controls screen. */
+  refreshBindings() {
+    const input = this.game.input;
+    for (const b of this.root.querySelectorAll('.btn.slot')) {
+      if (this.capturing && this.capturing.btn === b) continue;
+      const code = input.slots[b.dataset.a][Number(b.dataset.s)];
+      const label = code ? keyLabel(code, false, input.layout) : '–';
+      b.textContent = label;
+      b.classList.toggle('empty', !code);
+      b.setAttribute('aria-label', `${ACTION_NAME[b.dataset.a]}, ${SLOT_NAMES[b.dataset.s]}: ${code ? label : 'empty'}`);
+    }
+    this.renderHowTo();
+  }
+
+  setStatus(text, warn = false) {
+    const st = this.$('.bind-status');
+    st.textContent = text;
+    st.classList.toggle('warn', warn);
+  }
+
+  startCapture(btn) {
+    this.endCapture();
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    const s = Number(btn.dataset.s);
+    this.focusIdx = Math.max(0, this.visibleButtons().indexOf(btn));
+    this.updateFocus();
+    this.capturing = { a: btn.dataset.a, s, btn };
+    btn.classList.add('capturing');
+    btn.textContent = 'Press…';
+    const name = ACTION_NAME[btn.dataset.a];
+    this.setStatus(s === PAD_SLOT
+      ? `Press a gamepad button for “${name}”. Esc cancels; after 8 seconds nothing changes.`
+      : `Press a key or mouse button for “${name}”. Esc cancels; after 8 seconds nothing changes.`);
+    this.game.input.capture = (code) => this.onCapture(code);
+    this.armCaptureTimer();
+  }
+
+  armCaptureTimer() {
+    clearTimeout(this.captureTimer);
+    this.captureTimer = setTimeout(() => this.endCapture('Nothing was pressed, so that control is unchanged.'), CAPTURE_MS);
+  }
+
+  onCapture(code) {
+    const c = this.capturing;
+    if (!c) return;
+    const input = this.game.input;
+    const name = keyLabel(code, false, input.layout);
+    if (code === 'Escape') { this.endCapture('Cancelled. Nothing changed.'); return; }
+    if (RESERVED.has(code)) { this.setStatus(`${name || 'That key'} is kept by your system or browser. Press another one, or Esc to cancel.`, true); this.armCaptureTimer(); return; }
+    const pad = isPadCode(code);
+    if (c.s === PAD_SLOT && !pad) { this.setStatus('This column is for gamepad buttons. Press one, or Esc to cancel.', true); this.armCaptureTimer(); return; }
+    if (c.s !== PAD_SLOT && pad) { this.setStatus('This column is for keys and mouse buttons. Press one, or Esc to cancel.', true); this.armCaptureTimer(); return; }
+    const from = input.assign(c.a, c.s, code);
+    this.game.saveBindings();
+    let msg = `${ACTION_NAME[c.a]}: ${name}.`;
+    if (from) msg += ` ${name} no longer does “${ACTION_NAME[from.action]}”.`;
+    if (code.startsWith('Control')) msg += ' Careful: browsers keep some Ctrl shortcuts, such as Ctrl+W, which closes the tab.';
+    this.game.audio?.play('uiClick', { volume: 0.6 });
+    this.endCapture(msg, !!from);
+  }
+
+  endCapture(msg, warn = false) {
+    if (this.capturing) {
+      clearTimeout(this.captureTimer);
+      this.capturing.btn.classList.remove('capturing');
+      this.capturing = null;
+      this.game.input.capture = null;
+    }
+    this.refreshBindings();
+    this.refreshKeyLabels();
+    if (msg) this.setStatus(msg, warn);
+  }
+
+  clearBinding(btn) {
+    if (!btn || !btn.classList.contains('slot')) return false;
+    const a = btn.dataset.a, s = Number(btn.dataset.s);
+    const input = this.game.input;
+    if (!input.slots[a][s]) return true;
+    input.clearSlot(a, s);
+    this.game.saveBindings();
+    this.refreshBindings();
+    this.refreshKeyLabels();
+    const left = input.bindings[a].length;
+    this.setStatus(`Cleared the ${SLOT_NAMES[s]} for “${ACTION_NAME[a]}”.` + (left ? '' : ' Nothing triggers it now.'), !left);
+    return true;
+  }
+
+  resetBindings() {
+    this.endCapture();
+    this.game.input.resetSlots();
+    this.game.saveBindings();
+    this.refreshBindings();
+    this.refreshKeyLabels();
+    this.setStatus('All controls are back to their defaults.');
+  }
+
+  /** Extra keys on the Controls screen: clear the selected box. Returns true when handled. */
+  controlsKey(code) {
+    if (code === 'Delete' || code === 'Backspace' || code === 'Pad2') {
+      return this.clearBinding(this.visibleButtons()[this.focusIdx]);
+    }
+    return false;
+  }
+
+  /** Key names in hints, as bold HTML. */
+  keyHtml(action) {
+    const l = this.game.input.label(action);
+    return l ? `<b>${esc(l)}</b>` : '<b>(unbound)</b>';
+  }
+
+  /** HUD badges that show keys follow the current bindings and device. */
+  refreshKeyLabels() {
+    const input = this.game.input;
+    this.h.sigils.forEach((el, i) => { el.querySelector('.k').textContent = input.label(`sigil${i + 1}`, 'kbm', true); });
+    this.h.knives.querySelector('.k').textContent = input.label('knife', input.lastDevice, true);
+    this.h.tonics.querySelector('.k').textContent = input.label('tonic', input.lastDevice, true);
+    if (this.screen === 'controls') this.refreshBindings();
+  }
+
+  renderHowTo() {
+    const k = (a) => this.keyHtml(a);
+    this.$('.howto').innerHTML = `
+  <p>Hold ${k('sprint')} and run at a wall to climb it; at a ledge press ${k('forward')} or ${k('jump')} to pull up. Sprint off a roof edge to leap to the next rooftop automatically. Land in hay to break a fall and hide.</p>
+  <p>Demons that spot you fill a meter above their heads: yellow means suspicious, red means you've been seen. Sneak (${k('sneak')}), stay above their line of sight and strike unaware demons with ${k('interact')} for an instant assassination, even from above or from inside a hay cart.</p>
+  <p>In open combat, demons flash <span style="color:#ffd35a">yellow</span> before a parryable strike: tap ${k('block')} just before it lands to parry and counter. <span style="color:#ff5a4a">Red</span> attacks can't be blocked, so dodge (${k('dodge')}) or roll (${k('jump')}). Badly wounded demons stagger and glow: press ${k('interact')} for a Glory Kill that showers health. Burning demons drop armor; assassinations drop knives.</p>`;
   }
 
   // ------------------------------------------------------------ HUD refs
@@ -315,7 +476,7 @@ export class UI {
     const pr = p.prompt;
     if (pr && !p.dead && g.state === 'playing') {
       this.setText('pl', h.promptLabel, pr.label);
-      this.setText('pk', h.promptKey, g.input.lastDevice === 'pad' ? 'LB' : 'F');
+      this.setText('pk', h.promptKey, g.input.label('interact') || '–');
       this.setClass('pr', h.prompt, 'on', true);
       this.setClass('prg', h.prompt, 'glory', pr.kind === 'glory');
       this.setClass('prd', h.prompt, 'danger', pr.kind === 'assassinate' || pr.kind === 'airAssassinate' || pr.kind === 'hayAssassinate' || pr.kind === 'ledgeAssassinate');
@@ -451,7 +612,7 @@ export class UI {
         if (m.c.arm !== arm) { m.c.arm = arm; m.hp.classList.toggle('armored', arm); }
       }
       if (m.c.lock !== locked) { m.c.lock = locked; m.lock.style.display = locked ? 'block' : 'none'; }
-      const gl = glory ? (g.input.lastDevice === 'pad' ? 'LB' : 'F') + ' · GLORY' : '';
+      const gl = glory ? (g.input.label('interact', undefined, true) || '–') + ' · GLORY' : '';
       if (m.c.gl !== gl) { m.c.gl = gl; m.gl.textContent = gl; m.gl.style.display = gl ? 'block' : 'none'; }
     }
     for (let i = mi; i < this.markers.length; i++) if (this.markers[i].el.style.display !== 'none') this.markers[i].el.style.display = 'none';
@@ -697,9 +858,14 @@ export class UI {
 
   // ------------------------------------------------------------ screens
   show(id) {
+    if (this.capturing) this.endCapture();
     for (const s of this.root.querySelectorAll('.screen')) s.classList.toggle('on', s.id === 'screen-' + id);
     this.screen = id || null;
     this.focusIdx = 0;
+    if (id === 'controls') {
+      this.refreshBindings();
+      this.setStatus('');
+    }
     if (id === 'map') this.drawBigMap();
     if (id === 'upgrades') this.renderUpgrades();
     if (id === 'settings') this.syncSettings();
@@ -727,6 +893,17 @@ export class UI {
       this.game.audio?.play('uiClick', { volume: 0.6 });
       this.game.menuAction(b.dataset.act, b);
     });
+    // menu buttons never take browser focus: keyboard and gamepad focus is the game's own highlight,
+    // so Enter / Space can't also click a button the mouse touched earlier
+    this.root.addEventListener('mousedown', (e) => { if (e.target.closest('.btn')) e.preventDefault(); });
+    this.root.addEventListener('contextmenu', (e) => {
+      const b = e.target.closest('.btn.slot');
+      if (!b) return;
+      e.preventDefault();
+      this.focusIdx = Math.max(0, this.visibleButtons().indexOf(b));
+      this.updateFocus();
+      this.clearBinding(b);
+    });
     this.root.addEventListener('mouseover', (e) => {
       const b = e.target.closest('.btn');
       if (b && b !== this.hovered) { this.hovered = b; this.game.audio?.play('uiHover', { volume: 0.25 }); }
@@ -745,11 +922,27 @@ export class UI {
     });
   }
 
-  /** Keyboard / gamepad navigation of menus. */
-  navigate(dir) {
+  /** Keyboard / gamepad navigation of menus: dr moves between rows, dc within a row. */
+  navigate(dr, dc = 0) {
     const btns = this.visibleButtons();
     if (!btns.length) return;
-    this.focusIdx = (this.focusIdx + dir + btns.length) % btns.length;
+    if (this.screen === 'controls') {
+      const cur = btns[this.focusIdx] || btns[0];
+      const rows = this.bindRows + 1;
+      let r = Number(cur.dataset.r), c = Number(cur.dataset.c);
+      r = (r + dr + rows) % rows;
+      const row = btns.filter((b) => Number(b.dataset.r) === r);
+      if (dc) {
+        const i = row.indexOf(cur);
+        c = Number(row[(i + dc + row.length) % row.length].dataset.c);
+      }
+      let best = row[0];
+      for (const b of row) if (Math.abs(Number(b.dataset.c) - c) < Math.abs(Number(best.dataset.c) - c)) best = b;
+      this.focusIdx = btns.indexOf(best);
+    } else {
+      if (!dr) return;
+      this.focusIdx = (this.focusIdx + dr + btns.length) % btns.length;
+    }
     this.updateFocus();
     this.game.audio?.play('uiHover', { volume: 0.25 });
   }
@@ -769,6 +962,8 @@ export class UI {
   updateFocus() {
     const btns = this.visibleButtons();
     btns.forEach((b, i) => b.classList.toggle('focus', i === this.focusIdx));
+    const f = btns[this.focusIdx];
+    if (f && this.screen === 'controls') f.scrollIntoView({ block: 'nearest' });
   }
 
   syncSettings() {

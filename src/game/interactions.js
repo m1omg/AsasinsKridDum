@@ -121,7 +121,7 @@ export class Interactions {
     if (L.tonic) { p.tonics = Math.min(p.maxTonics, p.tonics + L.tonic); parts.push('Blood Tonic'); }
     if (L.armor) { p.armor = Math.min(p.maxArmor, p.armor + L.armor); parts.push(`${L.armor} armor`); }
     game.ui?.notify('Chest: ' + parts.join(', '), 'loot');
-    if (L.note) game.ui?.hint('A rune-sealed tonic from the Brotherhood. Press H to drink it when wounded.', 7);
+    if (L.note) game.ui?.hint(`A rune-sealed tonic from the Brotherhood. Press ${game.key('tonic')} to drink it when wounded.`, 7);
     game.fx.magicSwirl(c.data.x, c.data.y + 0.6, c.data.z, [2.4, 1.8, 0.6], 25, 0.5);
     game.save();
   }

@@ -24,10 +24,12 @@ You need a keyboard and mouse or a gamepad; touch screens aren't supported. Clic
 
 ## Controls
 
+Every control can be changed in the game (see [Changing controls](#changing-controls)). These are the defaults:
+
 | Action | Keyboard & mouse | Gamepad |
 |---|---|---|
-| Move | `W A S D` | Left stick |
-| Camera | Mouse | Right stick |
+| Move | `W A S D` or the arrow keys (both work) | Left stick |
+| Camera | Mouse, or `J` `L` `I` `K` / numpad `4` `6` `8` `2` (left, right, up, down) | Right stick |
 | Sprint / free-run (automatic rooftop leaps) | `Shift` (hold) | RT |
 | Jump / climb / ledge leap | `Space` | A |
 | Roll (sword drawn, demon close) | `Space` | A |
@@ -46,10 +48,21 @@ You need a keyboard and mouse or a gamepad; touch screens aren't supported. Clic
 | Map | `M` / `Tab` | Pause menu |
 | Pause | `Esc` / `P` | Start |
 
-Arrow keys turn the camera too. They help if mouse capture isn't available, for example inside an embedded frame.
+The camera keys also help if mouse capture isn't available, for example inside an embedded frame.
+
+### Changing controls
+Open **Controls** from the title screen or from the pause menu (`Esc`), at any point in a game.
+
+- Each action has three boxes: two for keys or mouse buttons, one for a gamepad button. Both keys work at the same time.
+- To change one, click its box, or move to it with the arrow keys (or D-pad) and press `Enter` (or A). Then press the key, mouse button, mouse wheel direction or gamepad button you want. `Esc` cancels, and if you press nothing for 8 seconds the box stays as it was.
+- To clear a box, right-click it, or select it and press `Delete` (or X on a gamepad).
+- A key can do only one thing. If you give it to another action, it's removed from the old one and the screen tells you.
+- **Reset to defaults** puts everything back. Changes save automatically in your browser.
+- `Esc` always pauses and can't be reassigned. Menus always answer to the arrow keys, `Enter` and `Esc`, and to your own movement keys.
+- Hints and on-screen prompts show the keys you've chosen.
 
 ### Climbing and free-running
-- Hold **Shift** and run at a wall to run up it and start climbing. Climbing works on almost every wall. **W/A/S/D** climbs, **Space** does an upward leap, **S + Space** jumps off backwards, **A/D + Space** leaps sideways, and **C** or **E** lets go. Climbing wraps around outer and inner corners.
+- Hold **Shift** and run at a wall to run up it and start climbing. Climbing works on almost every wall. **W/A/S/D** or the arrow keys climb, **Space** does an upward leap, **S** (or Down) **+ Space** jumps off backwards, **A/D** (or Left/Right) **+ Space** leaps sideways, and **C** or **E** lets go. Climbing wraps around outer and inner corners.
 - At a ledge, press **W** (or **Space**) to pull yourself up. Running into anything about chest-high makes you vault it.
 - Sprinting off a roof edge leaps automatically to the next rooftop or beam (jumps are aim-assisted). If there's nowhere to land, you stop at the edge unless you press Space.
 - Landing in **hay** cancels fall damage and hides you. Each synchronized viewpoint gives a **Leap of Faith** into the cart below it.

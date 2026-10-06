@@ -58,6 +58,9 @@ export class Game {
     this.sightOn = false;
     this.sightK = 0;
     this.settings = this.loadSettings();
+    this.input.setSlots(this.settings.bindings);
+    this.input.onLabelsChanged = () => this.ui.refreshKeyLabels();
+    this.ui.refreshKeyLabels();
     this.difficulty = DIFFICULTY[this.settings.difficulty] || DIFFICULTY.normal;
     this.progress = freshProgress();
     this.musicMode = 'none';
@@ -72,7 +75,7 @@ export class Game {
 
   // ------------------------------------------------------------ settings
   loadSettings() {
-    const def = { sens: 1, invertY: false, fov: 65, master: 0.8, music: 0.55, sfx: 0.9, quality: 'medium', difficulty: 'normal', shake: true, dmgNumbers: true, fps: false };
+    const def = { sens: 1, invertY: false, fov: 65, master: 0.8, music: 0.55, sfx: 0.9, quality: 'medium', difficulty: 'normal', shake: true, dmgNumbers: true, fps: false, bindings: null };
     const s = storage(() => JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null'));
     // mobile / small GPUs start on low quality
     if (!s && (window.innerWidth < 900 || /Mobi|Android/i.test(navigator.userAgent))) def.quality = 'low';
@@ -86,8 +89,19 @@ export class Game {
     else v = Number(v);
     s[k] = v;
     this.applySettings();
-    storage(() => localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)));
+    this.saveSettings();
   }
+
+  saveSettings() { storage(() => localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings))); }
+
+  /** Remember remapped controls (called by the Controls screen after every change). */
+  saveBindings() {
+    this.settings.bindings = this.input.exportSlots();
+    this.saveSettings();
+  }
+
+  /** Key name for hints, as bold HTML; follows the player's bindings and device. */
+  key(action) { return this.ui.keyHtml(action); }
 
   applySettings() {
     const s = this.settings;
@@ -201,7 +215,7 @@ export class Game {
     this.wantLockHint = true;
     if (this.tutorialStep === 0) {
       this.ui.banner('VELLANO', 'The city burns. The Creed hunts.');
-      setTimeout(() => this.ui.hint('Hold <b>Shift</b> to sprint. Run at a wall to climb it, and leap gaps between rooftops automatically.', 9), 2500);
+      setTimeout(() => this.ui.hint(`Hold ${this.key('sprint')} to sprint. Run at a wall to climb it, and leap gaps between rooftops automatically.`, 9), 2500);
     }
   }
 
@@ -268,7 +282,7 @@ export class Game {
     this.fx.magicSwirl(vp.perch.x, vp.perch.y + 1, vp.perch.z, [2.5, 1.9, 0.8], 80, 2.5);
     if (vp.id === 'vp_south' && this.tutorialStep < 3) {
       this.tutorialStep = 3;
-      setTimeout(() => this.ui.hint('Press <b>Space</b> (or <b>F</b>) at the end of the beam for a <b>Leap of Faith</b> into the hay below.', 8), 4200);
+      setTimeout(() => this.ui.hint(`Press ${this.key('jump')} (or ${this.key('interact')}) at the end of the beam for a <b>Leap of Faith</b> into the hay below.`, 8), 4200);
     }
   }
 
@@ -384,7 +398,7 @@ export class Game {
       if (this.state !== 'playing') return;
       if (!this.combatHinted && Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z) < 30) {
         this.combatHinted = true;
-        setTimeout(() => this.ui.hint('Demons flash <span style="color:#ffd35a">yellow</span> before a parryable strike: tap <b>Right mouse</b> as it lands to <b>parry</b> and counter. <span style="color:#ff6a5a">Red</span> strikes: <b>E</b> dodge / <b>Space</b> roll. <b>Q</b> casts your Sigil.', 10), 1200);
+        setTimeout(() => this.ui.hint(`Demons flash <span style="color:#ffd35a">yellow</span> before a parryable strike: tap ${this.key('block')} as it lands to <b>parry</b> and counter. <span style="color:#ff6a5a">Red</span> strikes: ${this.key('dodge')} dodge / ${this.key('jump')} roll. ${this.key('cast')} casts your Sigil.`, 10), 1200);
       }
       if (!this.lastAlertSound || this.realTime - this.lastAlertSound > 4) {
         this.lastAlertSound = this.realTime;
@@ -411,7 +425,7 @@ export class Game {
     });
     ev.on('parry', () => { if (this.tutorialStep < 99 && !this.parryHinted) { this.parryHinted = true; this.ui.notify('Parried! Counter-attack', 'loot'); } });
     ev.on('gloryReady', () => {
-      if (!this.gloryHinted) { this.gloryHinted = true; this.ui.hint('A staggered demon glows. Press <b>F</b> for a <b>Glory Kill</b>: it bursts into health.', 7); }
+      if (!this.gloryHinted) { this.gloryHinted = true; this.ui.hint(`A staggered demon glows. Press ${this.key('interact')} for a <b>Glory Kill</b>: it bursts into health.`, 7); }
     });
     ev.on('noStamina', () => this.ui.notify('Not enough stamina', 'bad'));
     ev.on('noKnives', () => this.ui.notify('No throwing knives', 'bad'));
@@ -427,7 +441,7 @@ export class Game {
     });
     ev.on('bossPhase', (ph) => this.ui.banner(ph === 1 ? 'HE BURNS BRIGHTER' : 'THE CARDINAL RAGES', ''));
     ev.on('bossKneel', () => {
-      if (!this.kneelHinted) { this.kneelHinted = true; this.ui.hint('The Cardinal kneels, exhausted! Get close and press <b>F</b> to strike his burning heart.', 6); }
+      if (!this.kneelHinted) { this.kneelHinted = true; this.ui.hint(`The Cardinal kneels, exhausted! Get close and press ${this.key('interact')} to strike his burning heart.`, 6); }
       else this.ui.notify('The Cardinal kneels: strike now!', 'loot');
     });
   }
@@ -468,23 +482,30 @@ export class Game {
     this.input.requestLock();
   }
 
+  /** Menu handling for a key / pad press. Returns true when the menus used it. */
   menuKey(code) {
     const st = this.state;
+    const has = (a) => this.input.bindings[a].includes(code);
     if (st === 'playing') {
-      if (code === 'KeyM' || code === 'Tab') { this.pause('map'); return; }
-      return;
+      if (has('map')) { this.pause('map'); return true; }
+      return false;
     }
-    if (st === 'loading') return;
+    if (st === 'loading') return false;
     const ui = this.ui;
-    if (code === 'ArrowDown' || code === 'KeyS' || code === 'Pad13') ui.navigate(1);
-    else if (code === 'ArrowUp' || code === 'KeyW' || code === 'Pad12') ui.navigate(-1);
-    else if (code === 'Enter' || code === 'Space' || code === 'Pad0') { ui.activate(); }
-    else if (code === 'Escape' || code === 'Pad1' || code === 'Pad9' || code === 'KeyP' || ((code === 'KeyM' || code === 'Tab') && ui.screen === 'map')) {
+    // menus: arrows, D-pad, Enter / Space / A and Esc / B always work, plus the player's own movement keys
+    if (ui.screen === 'controls' && ui.controlsKey(code)) return true;
+    if (code === 'Enter' || code === 'NumpadEnter' || code === 'Space' || code === 'Pad0') ui.activate();
+    else if (code === 'ArrowDown' || code === 'Pad13' || has('back')) ui.navigate(1);
+    else if (code === 'ArrowUp' || code === 'Pad12' || has('forward')) ui.navigate(-1);
+    else if (code === 'ArrowLeft' || code === 'Pad14' || has('left')) ui.navigate(0, -1);
+    else if (code === 'ArrowRight' || code === 'Pad15' || has('right')) ui.navigate(0, 1);
+    else if (code === 'Escape' || code === 'Pad1' || has('pause') || (has('map') && ui.screen === 'map')) {
       if (st === 'paused') {
         if (ui.screen === 'pause') this.resume();
         else ui.show('pause');
       } else if (st === 'title' && ui.screen !== 'title') ui.show('title');
-    }
+    } else return false;
+    return true;
   }
 
   menuAction(act, btn) {
@@ -497,6 +518,8 @@ export class Game {
       case 'map': ui.show('map'); break;
       case 'upgrades': ui.show('upgrades'); break;
       case 'controls': ui.show('controls'); break;
+      case 'bind': ui.startCapture(btn); break;
+      case 'resetBinds': ui.resetBindings(); break;
       case 'settings': ui.show('settings'); break;
       case 'back': ui.show(this.state === 'title' ? 'title' : 'pause'); break;
       case 'title': this.toTitle(); break;
@@ -575,10 +598,10 @@ export class Game {
     const s = this.tutorialStep;
     if (s === 0 && (p.state === 'climb' || this.tutorialT > 25)) {
       this.tutorialStep = 1;
-      this.ui.hint('At a ledge press <b>W</b> to pull up. <b>Space</b> leaps upward, <b>S</b>+<b>Space</b> jumps off, <b>C</b> drops.', 8);
+      this.ui.hint(`At a ledge press ${this.key('forward')} to pull up. ${this.key('jump')} leaps upward, ${this.key('back')}+${this.key('jump')} jumps off, ${this.key('sneak')} drops.`, 8);
     } else if (s === 1 && this.tutorialT > 40) {
       this.tutorialStep = 2;
-      this.ui.hint('Demons below? Sneak with <b>C</b>. Press <b>F</b> behind or above an unaware demon to <b>assassinate</b> it. <b>V</b> toggles Ashen Sight.', 9);
+      this.ui.hint(`Demons below? Sneak with ${this.key('sneak')}. Press ${this.key('interact')} behind or above an unaware demon to <b>assassinate</b> it. ${this.key('sight')} toggles Ashen Sight.`, 9);
     }
   }
 
