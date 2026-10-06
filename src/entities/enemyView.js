@@ -281,7 +281,7 @@ export class EnemyView {
       col = C_BLUE; inten = 0.5 + 0.4 * Math.sin(t * 10);
     } else if (e.state === 'attack' && e.phaseName === 'windup' && e.telegraph) {
       const a = e.attack;
-      const u = clamp(e.stateTime / a.windup, 0, 1);
+      const u = clamp(e.stateTime / (e.attackW ?? a.windup), 0, 1);
       col = e.telegraph === 'red' ? C_RED : C_YELLOW;
       inten = u > 0.45 ? (0.4 + 0.9 * u) * (0.75 + 0.25 * Math.sin(t * 30)) : 0;
     } else if (e.state === 'dazed') {

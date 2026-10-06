@@ -77,6 +77,29 @@ const HOLD_MODES = [
 const SLOT_NAMES = ['first key', 'second key', 'gamepad button'];
 const CAPTURE_MS = 8000;
 
+// difficulty levels: [name, description]
+const DIFF_TEXT = {
+  easy: ['Easy', 'Demons hit softly, attack one at a time and give long warnings before they strike. Parrying is forgiving, and they are slow to notice you.'],
+  medium: ['Medium', 'Demons attack one at a time with clear warnings and moderate damage. A fair fight. Recommended.'],
+  hard: ['Hard', 'Two demons can strike at once, warnings are short and hits hurt. The original challenge.'],
+};
+
+const PCT = (v) => `${Math.round(v * 100)}%`;
+// Settings rows: choices cycle; numbers step between min and max
+const SETTINGS = [
+  { k: 'difficulty', label: 'Difficulty', options: [['easy', 'Easy'], ['medium', 'Medium'], ['hard', 'Hard']] },
+  { k: 'sens', label: 'Mouse sensitivity', min: 0.2, max: 3, step: 0.1, fmt: (v) => v.toFixed(1) },
+  { k: 'invertY', label: 'Invert camera Y', options: [[false, 'Off'], [true, 'On']] },
+  { k: 'fov', label: 'Field of view', min: 55, max: 85, step: 5, fmt: (v) => `${Math.round(v)}°` },
+  { k: 'master', label: 'Master volume', min: 0, max: 1, step: 0.1, fmt: PCT },
+  { k: 'music', label: 'Music volume', min: 0, max: 1, step: 0.1, fmt: PCT },
+  { k: 'sfx', label: 'Effects volume', min: 0, max: 1, step: 0.1, fmt: PCT },
+  { k: 'quality', label: 'Graphics quality', options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] },
+  { k: 'shake', label: 'Camera shake', options: [[true, 'On'], [false, 'Off']] },
+  { k: 'dmgNumbers', label: 'Damage numbers', options: [[true, 'On'], [false, 'Off']] },
+  { k: 'fps', label: 'Show FPS', options: [[false, 'Off'], [true, 'On']] },
+];
+
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const el = (html) => {
@@ -218,19 +241,20 @@ export class UI {
   </div>
 </div></div>
 
-<div class="screen dim" id="screen-settings"><div class="panel" style="width:640px">
-  <h2>Settings</h2><div class="sep"></div>
-  <div class="settings-row"><span>Mouse sensitivity</span><input type="range" min="0.2" max="3" step="0.05" data-set="sens"><span class="v" data-v="sens"></span></div>
-  <div class="settings-row"><span>Invert camera Y</span><select data-set="invertY"><option value="0">Off</option><option value="1">On</option></select><span></span></div>
-  <div class="settings-row"><span>Field of view</span><input type="range" min="55" max="85" step="1" data-set="fov"><span class="v" data-v="fov"></span></div>
-  <div class="settings-row"><span>Master volume</span><input type="range" min="0" max="1" step="0.05" data-set="master"><span class="v" data-v="master"></span></div>
-  <div class="settings-row"><span>Music volume</span><input type="range" min="0" max="1" step="0.05" data-set="music"><span class="v" data-v="music"></span></div>
-  <div class="settings-row"><span>Effects volume</span><input type="range" min="0" max="1" step="0.05" data-set="sfx"><span class="v" data-v="sfx"></span></div>
-  <div class="settings-row"><span>Graphics quality</span><select data-set="quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><span></span></div>
-  <div class="settings-row"><span>Difficulty</span><select data-set="difficulty"><option value="easy">Pilgrim (easy)</option><option value="normal">Assassin (normal)</option><option value="hard">Slayer (hard)</option></select><span></span></div>
-  <div class="settings-row"><span>Camera shake</span><select data-set="shake"><option value="1">On</option><option value="0">Off</option></select><span></span></div>
-  <div class="settings-row"><span>Damage numbers</span><select data-set="dmgNumbers"><option value="1">On</option><option value="0">Off</option></select><span></span></div>
-  <div class="settings-row"><span>Show FPS</span><select data-set="fps"><option value="0">Off</option><option value="1">On</option></select><span></span></div>
+<div class="screen dim" id="screen-difficulty"><div class="panel diff-panel">
+  <h2>Choose difficulty</h2>
+  <p>You can change it at any time in Settings.</p>
+  <div class="sep"></div>
+  <div class="diff-list">${['easy', 'medium', 'hard'].map((d) => `<button class="btn diff" data-act="pickDifficulty" data-d="${d}"><span class="dn">${DIFF_TEXT[d][0]}</span><span class="dd">${DIFF_TEXT[d][1]}</span></button>`).join('')}</div>
+  <div class="sep"></div><button class="btn small" data-act="back">Back</button>
+</div></div>
+
+<div class="screen dim" id="screen-settings"><div class="panel settings-panel">
+  <h2>Settings</h2>
+  <p class="opt-help">Up and down pick a setting; left and right change it. You can also click the arrows.</p>
+  <div class="sep"></div>
+  ${SETTINGS.map((o, i) => `<div class="settings-row"><span id="set-${o.k}">${o.label}</span><button class="btn opt" data-act="opt" data-k="${o.k}" data-r="${i}" data-c="0" aria-describedby="set-${o.k}"><span class="arw" data-d="-1" aria-hidden="true">&#9664;</span><span class="v"></span><span class="arw" data-d="1" aria-hidden="true">&#9654;</span></button></div>`).join('')}
+  <p class="diff-note"></p>
   <div class="sep"></div><button class="btn small" data-act="back">Back</button>
 </div></div>
 
@@ -904,6 +928,11 @@ export class UI {
     if (id === 'map') this.drawBigMap();
     if (id === 'upgrades') this.renderUpgrades();
     if (id === 'settings') this.syncSettings();
+    if (id === 'difficulty') {
+      const cur = this.game.settings.difficulty;
+      for (const b of this.root.querySelectorAll('.btn.diff')) b.classList.toggle('current', b.dataset.d === cur);
+      this.focusIdx = Math.max(0, this.visibleButtons().findIndex((b) => b.dataset.d === cur));
+    }
     if (id === 'title') {
       const cont = this.$('[data-act="continue"]');
       cont.style.display = this.game.hasSave() ? '' : 'none';
@@ -926,6 +955,14 @@ export class UI {
       if (!b) return;
       this.game.audio?.unlock();
       this.game.audio?.play('uiClick', { volume: 0.6 });
+      if (b.dataset.act === 'opt') {
+        // the left arrow lowers / goes back; anywhere else on the button raises / goes forward
+        const arw = e.target.closest('.arw');
+        this.focusIdx = Math.max(0, this.visibleButtons().indexOf(b));
+        this.updateFocus();
+        this.changeOption(b, arw ? Number(arw.dataset.d) : 1);
+        return;
+      }
       this.game.menuAction(b.dataset.act, b);
     });
     // menu buttons never take browser focus: keyboard and gamepad focus is the game's own highlight,
@@ -943,18 +980,22 @@ export class UI {
       const b = e.target.closest('.btn');
       if (b && b !== this.hovered) { this.hovered = b; this.game.audio?.play('uiHover', { volume: 0.25 }); }
     });
-    this.root.addEventListener('input', (e) => {
-      const k = e.target.dataset.set;
-      if (!k) return;
-      this.game.setSetting(k, e.target.value);
-      this.syncSettings();
-    });
-    this.root.addEventListener('change', (e) => {
-      const k = e.target.dataset.set;
-      if (!k) return;
-      this.game.setSetting(k, e.target.value);
-      this.syncSettings();
-    });
+  }
+
+  changeOption(btn, dir) {
+    const o = SETTINGS.find((x) => x.k === btn.dataset.k);
+    if (!o) return;
+    const cur = this.game.settings[o.k];
+    let v;
+    if (o.options) {
+      const i = Math.max(0, o.options.findIndex(([val]) => val === cur));
+      v = o.options[(i + dir + o.options.length) % o.options.length][0];
+    } else {
+      v = Math.min(o.max, Math.max(o.min, Math.round((Number(cur) + dir * o.step) / o.step) * o.step));
+      v = Number(v.toFixed(2));
+    }
+    this.game.setSetting(o.k, v);
+    this.syncSettings();
   }
 
   /** Keyboard / gamepad navigation of menus: dr moves between rows, dc within a row. */
@@ -974,8 +1015,12 @@ export class UI {
       let best = row[0];
       for (const b of row) if (Math.abs(Number(b.dataset.c) - c) < Math.abs(Number(best.dataset.c) - c)) best = b;
       this.focusIdx = btns.indexOf(best);
+    } else if (dc) {
+      // Settings: left / right change the selected option
+      const f = btns[this.focusIdx];
+      if (this.screen === 'settings' && f && f.classList.contains('opt')) this.changeOption(f, dc);
+      return;
     } else {
-      if (!dr) return;
       this.focusIdx = (this.focusIdx + dr + btns.length) % btns.length;
     }
     this.updateFocus();
@@ -1003,17 +1048,15 @@ export class UI {
 
   syncSettings() {
     const s = this.game.settings;
-    for (const inp of this.root.querySelectorAll('[data-set]')) {
-      const k = inp.dataset.set;
-      let v = s[k];
-      if (typeof v === 'boolean') v = v ? '1' : '0';
-      if (inp.value !== String(v)) inp.value = String(v);
+    for (const b of this.root.querySelectorAll('.btn.opt')) {
+      const o = SETTINGS.find((x) => x.k === b.dataset.k);
+      const v = s[o.k];
+      const text = o.options ? (o.options.find(([val]) => val === v) || o.options[0])[1] : o.fmt(Number(v));
+      b.querySelector('.v').textContent = text;
+      b.setAttribute('aria-label', `${o.label}: ${text}. Left and right change it.`);
     }
-    for (const sp of this.root.querySelectorAll('[data-v]')) {
-      const k = sp.dataset.v;
-      const v = s[k];
-      sp.textContent = k === 'fov' ? `${v}°` : k === 'sens' ? Number(v).toFixed(2) : `${Math.round(v * 100)}%`;
-    }
+    const d = DIFF_TEXT[s.difficulty];
+    this.$('.diff-note').textContent = d ? `${d[0]}: ${d[1]}` : '';
   }
 
   renderUpgrades() {

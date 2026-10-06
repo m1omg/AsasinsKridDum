@@ -85,6 +85,7 @@ Open **Controls** from the title screen or from the pause menu (`Esc`), at any p
 - A demon flashes **yellow** before an attack you can parry. Tap block just before the hit to **parry**, which staggers it and triggers an automatic counter. **Red** attacks can't be blocked, so dodge or roll.
 - Parried, knocked-down, dazed or badly wounded demons glow. Press **F** for a **Glory Kill**, which showers **health** orbs.
 - **Burning** demons drop **armor shards**, and assassinated demons drop **knives**.
+- These drops are glowing orbs: green heal you, gold give armor and silver give throwing knives. Walk near one and it flies to you. If that resource is already full, the orb restores stamina instead.
 - Sigils cost 50 stamina each:
   - **Pyre**: a cone of fire.
   - **Gust**: a force blast that knocks lesser demons down.
@@ -92,6 +93,23 @@ Open **Controls** from the title screen or from the pause menu (`Esc`), at any p
   - **Snare**: a glyph trap that slows demons and drags flying Gazers to the ground.
   - **Hex**: stuns a demon.
 - Brutes are armored from the front. Burn them, hit them from behind, or bait their charge into a wall to stun them.
+
+### Difficulty
+Choose **Easy**, **Medium** (the default) or **Hard** when you start a new game, and change it any time in **Settings**.
+
+| | Easy | Medium | Hard |
+|---|---|---|---|
+| Damage you take | 35% | 60% | 100% |
+| Damage you deal | 150% | 120% | 100% |
+| Demons attacking at once | 1 melee, 1 ranged | 1 melee, 1 ranged | 2 melee, 2 ranged |
+| Warning before a strike | 45% longer | 20% longer | normal |
+| Time between a demon's attacks | 70% longer | 30% longer | normal |
+| Parry window | 0.42 s | 0.34 s | 0.26 s |
+| How fast demons notice you | 60% | 80% | 100% |
+
+Hard is the game's original balance. Saves made before difficulty levels existed start on Medium.
+
+Settings work from the keyboard or a gamepad: up and down pick a setting, left and right change it.
 
 ### Progression
 Ashen Runes come from chests, viewpoints, closed rifts and every third hidden Creed Relic. Spend them in **The Creed** (pause menu) on health, sword damage, stamina, Sigil power, more knives, an extra tonic and stealth.

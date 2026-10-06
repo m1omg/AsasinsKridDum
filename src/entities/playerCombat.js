@@ -636,7 +636,7 @@ const C = {
     }
     const canDefend = !a.unblockable && facing && (this.state === 'block' || this.state === 'counter');
     const sinceBlock = this.time - this.blockStart;
-    if (canDefend && (sinceBlock < 0.26 || this.state === 'counter') && (a.parryable !== false)) {
+    if (canDefend && (sinceBlock < (game.difficulty?.parry ?? 0.26) || this.state === 'counter') && (a.parryable !== false)) {
       // perfect parry -> riposte (melee) or deflect (projectile)
       game.fx.sparks(this.pos.x + Math.sin(this.yaw) * 0.6, this.pos.y + 1.3, this.pos.z + Math.cos(this.yaw) * 0.6, 26, [1, 0.85, 0.5], 9);
       game.audio?.play('parry', { pos: this.pos, volume: 1 });

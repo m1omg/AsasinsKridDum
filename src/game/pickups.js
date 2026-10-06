@@ -3,7 +3,10 @@ import { rand, clamp } from '../core/math.js';
 
 // Doom-style resource orbs: health (glory kills), armor shards (burning
 // kills), throwing knives (assassinations). They pop out, bounce, then get
-// magnetised to the player.
+// magnetised to the player. An orb for a resource that's already full
+// restores stamina instead, so every orb is worth picking up.
+
+const STAMINA_FROM_ORB = 15;
 
 const KINDS = {
   health: { color: new THREE.Color(0.35, 2.6, 0.5), size: 0.16, value: 10 },
@@ -50,8 +53,7 @@ export class Pickups {
       o.life -= dt;
       const dx = p.pos.x - o.pos.x, dy = p.pos.y + 1.0 - o.pos.y, dz = p.pos.z - o.pos.z;
       const d = Math.hypot(dx, dy, dz);
-      const wanted = this.wanted(o.kind);
-      if (o.age > 0.45 && d < 6 && wanted && !p.dead) {
+      if (o.age > 0.45 && d < 6 && !p.dead) {
         // magnet
         const sp = clamp(14 - d * 1.5, 7, 16);
         o.vel.set(dx / d * sp, dy / d * sp, dz / d * sp);
@@ -84,11 +86,21 @@ export class Pickups {
 
   collect(o) {
     o.dead = true;
-    const p = this.game.player;
-    if (o.kind === 'health') { p.heal(o.value); this.game.audio?.play('pickupHealth', { volume: 0.5, pitch: rand(0.95, 1.1) }); }
-    else if (o.kind === 'armor') { p.armor = Math.min(p.maxArmor, p.armor + o.value); this.game.audio?.play('pickupArmor', { volume: 0.5, pitch: rand(0.95, 1.1) }); }
-    else if (o.kind === 'knife') { p.knives = Math.min(p.maxKnives, p.knives + o.value); this.game.audio?.play('pickupKnife', { volume: 0.6 }); }
-    this.game.events.emit('pickup', o.kind, o.value);
+    const game = this.game;
+    const p = game.player;
+    const full = !this.wanted(o.kind);
+    if (full) {
+      // already full: the orb restores stamina instead
+      p.stamina = Math.min(p.maxStamina, p.stamina + STAMINA_FROM_ORB);
+      game.audio?.play('pickupRune', { volume: 0.3, pitch: rand(1.3, 1.5) });
+    } else if (o.kind === 'health') { p.heal(o.value); game.audio?.play('pickupHealth', { volume: 0.5, pitch: rand(0.95, 1.1) }); }
+    else if (o.kind === 'armor') { p.armor = Math.min(p.maxArmor, p.armor + o.value); game.audio?.play('pickupArmor', { volume: 0.5, pitch: rand(0.95, 1.1) }); }
+    else if (o.kind === 'knife') { p.knives = Math.min(p.maxKnives, p.knives + o.value); game.audio?.play('pickupKnife', { volume: 0.6 }); }
+    if (!game.orbHinted) {
+      game.orbHinted = true;
+      game.ui?.hint('<b>Orbs:</b> green heal you, gold give armor and silver give throwing knives. Walk near one to collect it. If you are already full, it restores stamina instead.', 9);
+    }
+    game.events.emit('pickup', full ? 'stamina' : o.kind, full ? STAMINA_FROM_ORB : o.value);
   }
 
   render(alpha) {

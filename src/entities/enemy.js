@@ -432,6 +432,8 @@ export class Enemy {
 
   startAttack(a) {
     this.attack = a;
+    // easier difficulties give longer telegraphs before the strike
+    this.attackW = a.windup * (this.game.difficulty?.windup ?? 1);
     this.attackHit = false;
     this.attackFired = 0;
     this.attackDir = this.yaw;
@@ -448,7 +450,7 @@ export class Enemy {
     const a = this.attack;
     const p = this.player;
     const t = this.stateTime;
-    const W = a.windup * (this.slowed > 0 ? 1.5 : 1), A = a.active, R = a.recover;
+    const W = (this.attackW ?? a.windup) * (this.slowed > 0 ? 1.5 : 1), A = a.active, R = a.recover;
     // animation phase mapping
     let u;
     if (t < W) u = (t / W) * 0.5;
@@ -494,7 +496,7 @@ export class Enemy {
       }
     }
     if (t >= W + A + R) {
-      this.cooldowns[a.name] = a.cooldown * rand(0.85, 1.25);
+      this.cooldowns[a.name] = a.cooldown * rand(0.85, 1.25) * (this.game.difficulty?.cooldown ?? 1);
       this.attack = null;
       this.anim = null;
       this.telegraph = null;
@@ -552,10 +554,11 @@ export class Enemy {
     this.want.instant = true;
     if (!this.attackHit) this.meleeCheck({ ...a, reach: a.reach + 0.6, arc: 2.4 });
     this.game.fx?.dust(this.pos.x, this.pos.y, this.pos.z, 2, 1.2);
-    if (this.lastContacts && this.lastContacts > 0 && this.stateTime > a.windup + 0.15) {
+    const W = this.attackW ?? a.windup;
+    if (this.lastContacts && this.lastContacts > 0 && this.stateTime > W + 0.15) {
       // slammed into a wall: stunned
       this.chargeHitWall = true;
-      this.stateTime = a.windup + a.active;
+      this.stateTime = W + a.active;
       this.game.camera?.addShake(0.35);
       this.game.audio?.play('bruteSlam', { pos: this.pos, volume: 0.8 });
       this.game.fx?.dust(this.pos.x + this.want.x, this.pos.y + 1, this.pos.z + this.want.z, 20, 1.5);

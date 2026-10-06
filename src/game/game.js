@@ -26,10 +26,13 @@ Object.assign(CLIPS, PLAYER_CLIPS);
 
 const SAVE_KEY = 'hellcreed_save_v1';
 const SETTINGS_KEY = 'hellcreed_settings_v1';
-const DIFFICULTY = {
-  easy: { taken: 0.55, dealt: 1.25, detect: 0.75 },
-  normal: { taken: 1, dealt: 1, detect: 1 },
-  hard: { taken: 1.45, dealt: 0.9, detect: 1.25 },
+// taken / dealt: damage multipliers; detect: how fast demons notice you; windup: time demons
+// telegraph before striking; cooldown: time between their attacks; melee / ranged: how many
+// demons may attack at once; parry: seconds after raising the guard that count as a parry
+export const DIFFICULTY = {
+  easy: { name: 'Easy', taken: 0.35, dealt: 1.5, detect: 0.6, windup: 1.45, cooldown: 1.7, melee: 1, ranged: 1, parry: 0.42 },
+  medium: { name: 'Medium', taken: 0.6, dealt: 1.2, detect: 0.8, windup: 1.2, cooldown: 1.3, melee: 1, ranged: 1, parry: 0.34 },
+  hard: { name: 'Hard', taken: 1, dealt: 1, detect: 1, windup: 1, cooldown: 1, melee: 2, ranged: 2, parry: 0.26 },
 };
 
 function storage(fn, fallback = null) {
@@ -62,7 +65,7 @@ export class Game {
     this.applyToggles();
     this.input.onLabelsChanged = () => this.ui.refreshKeyLabels();
     this.ui.refreshKeyLabels();
-    this.difficulty = DIFFICULTY[this.settings.difficulty] || DIFFICULTY.normal;
+    this.difficulty = DIFFICULTY[this.settings.difficulty] || DIFFICULTY.medium;
     this.progress = freshProgress();
     this.musicMode = 'none';
     this.loop = new Loop({
@@ -77,7 +80,7 @@ export class Game {
   // ------------------------------------------------------------ settings
   loadSettings() {
     // toggles: true = one press switches the action on and the next switches it off; false = hold the key
-    const def = { sens: 1, invertY: false, fov: 65, master: 0.8, music: 0.55, sfx: 0.9, quality: 'medium', difficulty: 'normal', shake: true, dmgNumbers: true, fps: false, bindings: null, toggles: { sprint: false, block: false, sneak: true } };
+    const def = { sens: 1, invertY: false, fov: 65, master: 0.8, music: 0.55, sfx: 0.9, quality: 'medium', difficulty: 'medium', shake: true, dmgNumbers: true, fps: false, bindings: null, toggles: { sprint: false, block: false, sneak: true } };
     const s = storage(() => JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null'));
     // mobile / small GPUs start on low quality
     if (!s && (window.innerWidth < 900 || /Mobi|Android/i.test(navigator.userAgent))) def.quality = 'low';
@@ -85,6 +88,8 @@ export class Game {
     const t = s && s.toggles && typeof s.toggles === 'object' ? s.toggles : {};
     out.toggles = {};
     for (const k of Object.keys(def.toggles)) out.toggles[k] = typeof t[k] === 'boolean' ? t[k] : def.toggles[k];
+    // the old 'normal' was much harder than intended; old saves land on the new, gentler Medium
+    if (!DIFFICULTY[out.difficulty]) out.difficulty = 'medium';
     return out;
   }
 
@@ -132,7 +137,11 @@ export class Game {
       this.camera.shakeEnabled = s.shake;
     }
     this.audio.setVolumes({ master: s.master, music: s.music, sfx: s.sfx });
-    this.difficulty = DIFFICULTY[s.difficulty] || DIFFICULTY.normal;
+    this.difficulty = DIFFICULTY[s.difficulty] || DIFFICULTY.medium;
+    if (this.director) {
+      this.director.maxMelee = this.difficulty.melee;
+      this.director.maxRanged = this.difficulty.ranged;
+    }
     if (this.renderer.quality !== s.quality) {
       this.renderer.setQuality(s.quality);
       this.fx?.setQuality(this.renderer.settings);
@@ -535,7 +544,8 @@ export class Game {
   menuAction(act, btn) {
     const ui = this.ui;
     switch (act) {
-      case 'new': this.newGame(); break;
+      case 'new': ui.show('difficulty'); break;
+      case 'pickDifficulty': this.setSetting('difficulty', btn.dataset.d); this.newGame(); break;
       case 'continue': this.continueGame(); break;
       case 'begin': this.beginPlay(); break;
       case 'resume': this.resume(); break;
