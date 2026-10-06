@@ -61,6 +61,13 @@ Open **Controls** from the title screen or from the pause menu (`Esc`), at any p
 - `Esc` always pauses and can't be reassigned. Menus always answer to the arrow keys, `Enter` and `Esc`, and to your own movement keys.
 - Hints and on-screen prompts show the keys you've chosen.
 
+**Hold or toggle.** At the top of the Controls screen you can choose how **Sprint**, **Block** and **Sneak** work:
+- **Hold** (default for sprint and block): the action lasts while you hold the key.
+- **Toggle** (default for sneak): one press switches it on and the next switches it off.
+  - Toggled sprint also stops when you stop moving or start sneaking.
+  - A toggled guard still parries if you raise it just before a hit, and lowers by itself when no demons are near.
+  - With sprint on toggle, the strong-attack shortcut (sprint key + fast attack) works while you physically hold the sprint key. The strong attack key works as always.
+
 ### Climbing and free-running
 - Hold **Shift** and run at a wall to run up it and start climbing. Climbing works on almost every wall. **W/A/S/D** or the arrow keys climb, **Space** does an upward leap, **S** (or Down) **+ Space** jumps off backwards, **A/D** (or Left/Right) **+ Space** leaps sideways, and **C** or **E** lets go. Climbing wraps around outer and inner corners.
 - At a ledge, press **W** (or **Space**) to pull yourself up. Running into anything about chest-high makes you vault it.

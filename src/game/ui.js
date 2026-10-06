@@ -43,10 +43,10 @@ export { UPGRADES };
 const ACTION_GROUPS = [
   ['Movement', [
     ['forward', 'Move forward'], ['back', 'Move back'], ['left', 'Move left'], ['right', 'Move right'],
-    ['sprint', 'Sprint and free-run (hold)'], ['jump', 'Jump, climb and leap; roll in a fight'], ['sneak', 'Sneak'],
+    ['sprint', 'Sprint and free-run'], ['jump', 'Jump, climb and leap; roll in a fight'], ['sneak', 'Sneak'],
   ]],
   ['Combat', [
-    ['attack', 'Fast attack'], ['heavy', 'Strong attack (hold for Rend)'], ['block', 'Block (hold) or parry (tap)'],
+    ['attack', 'Fast attack'], ['heavy', 'Strong attack (hold for Rend)'], ['block', 'Block, or parry with good timing'],
     ['dodge', 'Dodge'], ['lock', 'Lock on to a demon'],
   ]],
   ['Stealth', [
@@ -65,6 +65,15 @@ const ACTION_GROUPS = [
   ]],
 ];
 const ACTION_NAME = Object.fromEntries(ACTION_GROUPS.flatMap(([, list]) => list));
+// hold or toggle, per action: [row name, hold text, toggle text, message when switched to toggle]
+const HOLD_MODES = [
+  ['sprint', 'Sprint', 'Hold the key to sprint', 'Press once to start sprinting, again to stop',
+    'Sprint now toggles: press once to start and again to stop. It also stops when you stop moving or start sneaking.'],
+  ['block', 'Block', 'Hold the key to keep your guard up', 'Press once to raise your guard, again to lower it',
+    'Block now toggles: press once to raise your guard and again to lower it. Raising it just before a hit still parries. It lowers by itself when no demons are near.'],
+  ['sneak', 'Sneak', 'Hold the key to sneak', 'Press once to start sneaking, again to stop',
+    'Sneak now toggles: press once to start and again to stop.'],
+];
 const SLOT_NAMES = ['first key', 'second key', 'gamepad button'];
 const CAPTURE_MS = 8000;
 
@@ -237,8 +246,13 @@ export class UI {
 
   // ------------------------------------------------------------ remapping
   bindsTemplate() {
-    let html = '<span class="h">Action</span><span class="h">Key</span><span class="h">Second key</span><span class="h">Gamepad</span>';
     let r = 0;
+    let html = '<span class="grp">Hold or toggle</span>';
+    for (const [a, name] of HOLD_MODES) {
+      html += `<span class="act" id="mode-${a}">${esc(name)}</span><button class="btn mode" data-act="holdMode" data-m="${a}" data-r="${r}" data-c="0" aria-describedby="mode-${a}"></button>`;
+      r++;
+    }
+    html += '<span class="h">Action</span><span class="h">Key</span><span class="h">Second key</span><span class="h">Gamepad</span>';
     for (const [group, list] of ACTION_GROUPS) {
       html += `<span class="grp">${esc(group)}</span>`;
       for (const [a, name] of list) {
@@ -253,9 +267,16 @@ export class UI {
     return html;
   }
 
-  /** Write the current bindings into the Controls screen. */
+  /** Write the current bindings and hold / toggle modes into the Controls screen. */
   refreshBindings() {
     const input = this.game.input;
+    const toggles = this.game.settings.toggles;
+    for (const b of this.root.querySelectorAll('.btn.mode')) {
+      const m = HOLD_MODES.find((x) => x[0] === b.dataset.m);
+      const on = !!toggles[m[0]];
+      b.innerHTML = on ? `<b>Toggle</b> · ${esc(m[3])}` : `<b>Hold</b> · ${esc(m[2])}`;
+      b.setAttribute('aria-label', `${m[1]}: ${on ? 'toggle, ' + m[3] : 'hold, ' + m[2]}. Select to switch.`);
+    }
     for (const b of this.root.querySelectorAll('.btn.slot')) {
       if (this.capturing && this.capturing.btn === b) continue;
       const code = input.slots[b.dataset.a][Number(b.dataset.s)];
@@ -340,6 +361,17 @@ export class UI {
     return true;
   }
 
+  switchHoldMode(btn) {
+    const m = HOLD_MODES.find((x) => x[0] === btn.dataset.m);
+    if (!m) return;
+    const on = !this.game.settings.toggles[m[0]];
+    this.game.setToggleMode(m[0], on);
+    this.focusIdx = Math.max(0, this.visibleButtons().indexOf(btn));
+    this.updateFocus();
+    this.refreshBindings();
+    this.setStatus(on ? m[4] : `${m[1]} now works while you hold the key.`);
+  }
+
   resetBindings() {
     this.endCapture();
     this.game.input.resetSlots();
@@ -374,10 +406,13 @@ export class UI {
 
   renderHowTo() {
     const k = (a) => this.keyHtml(a);
+    const t = this.game.settings.toggles;
+    const sprint = t.sprint ? `Sprint (${k('sprint')} switches it on and off)` : `Hold ${k('sprint')}`;
+    const parry = t.block ? `press ${k('block')} just before it lands to raise your guard and parry; press it again to lower it` : `tap ${k('block')} just before it lands to parry and counter`;
     this.$('.howto').innerHTML = `
-  <p>Hold ${k('sprint')} and run at a wall to climb it; at a ledge press ${k('forward')} or ${k('jump')} to pull up. Sprint off a roof edge to leap to the next rooftop automatically. Land in hay to break a fall and hide.</p>
+  <p>${sprint} and run at a wall to climb it; at a ledge press ${k('forward')} or ${k('jump')} to pull up. Sprint off a roof edge to leap to the next rooftop automatically. Land in hay to break a fall and hide.</p>
   <p>Demons that spot you fill a meter above their heads: yellow means suspicious, red means you've been seen. Sneak (${k('sneak')}), stay above their line of sight and strike unaware demons with ${k('interact')} for an instant assassination, even from above or from inside a hay cart.</p>
-  <p>In open combat, demons flash <span style="color:#ffd35a">yellow</span> before a parryable strike: tap ${k('block')} just before it lands to parry and counter. <span style="color:#ff5a4a">Red</span> attacks can't be blocked, so dodge (${k('dodge')}) or roll (${k('jump')}). Badly wounded demons stagger and glow: press ${k('interact')} for a Glory Kill that showers health. Burning demons drop armor; assassinations drop knives.</p>`;
+  <p>In open combat, demons flash <span style="color:#ffd35a">yellow</span> before a parryable strike: ${parry}. <span style="color:#ff5a4a">Red</span> attacks can't be blocked, so dodge (${k('dodge')}) or roll (${k('jump')}). Badly wounded demons stagger and glow: press ${k('interact')} for a Glory Kill that showers health. Burning demons drop armor; assassinations drop knives.</p>`;
   }
 
   // ------------------------------------------------------------ HUD refs

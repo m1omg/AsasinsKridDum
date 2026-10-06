@@ -133,6 +133,7 @@ export class Input {
     this.lastDevice = 'kbm';
     this.listeners = [];
     this.anyKeyCallbacks = [];
+    this.toggles = new Set(); // actions that one press switches on and the next press switches off
     this.capture = null; // fn(code) while the Controls screen waits for a new binding
     this._swallow = null;
     this.layout = null; // KeyboardLayoutMap when the browser shares it (labels match the user's layout)
@@ -206,6 +207,29 @@ export class Input {
     this.rebuildMap();
     this.releaseAll();
   }
+
+  // ------------------------------------------------------------ hold / toggle
+  /** Make `action` a toggle (press on, press again off) or a normal hold action. */
+  setToggle(action, on) {
+    if (on) { this.toggles.add(action); return; }
+    this.toggles.delete(action);
+    // leaving toggle mode: drop a latched state unless a key is really held
+    const st = this.actions[action];
+    if (st.down && !this.keyHeld(action)) { st.down = false; st.releasedAt = this.time; }
+  }
+
+  isToggle(action) { return this.toggles.has(action); }
+
+  /** Switch a toggled-on action off (e.g. sprint when the player stops). */
+  unlatch(action) {
+    const st = this.actions[action];
+    if (this.toggles.has(action) && st.down) { st.down = false; st.releasedAt = this.time; }
+  }
+
+  clearLatches() { for (const a of this.toggles) this.unlatch(a); }
+
+  /** True while a key bound to `action` is physically down (ignores toggle state). */
+  keyHeld(action) { return this.bindings[action].some((c) => this.logical.has(c)); }
 
   /** Name of the key that triggers `action` on `device` ('kbm' or 'pad'); '' when nothing is bound. */
   label(action, device = this.lastDevice, short = false) {
@@ -353,7 +377,12 @@ export class Input {
       if (!acts) continue;
       for (const a of acts) {
         const st = this.actions[a];
-        if (down) {
+        if (this.toggles.has(a)) {
+          // toggle: each press flips it; letting go of the key changes nothing
+          if (!down) continue;
+          if (!st.down) { st.down = true; st.pressedTick = this.tickIndex; st.pressedAt = simTime; }
+          else { st.down = false; st.releasedAt = simTime; }
+        } else if (down) {
           if (!st.down) { st.pressedTick = this.tickIndex; st.pressedAt = simTime; }
           st.down = true;
         } else {

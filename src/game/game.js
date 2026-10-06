@@ -59,6 +59,7 @@ export class Game {
     this.sightK = 0;
     this.settings = this.loadSettings();
     this.input.setSlots(this.settings.bindings);
+    this.applyToggles();
     this.input.onLabelsChanged = () => this.ui.refreshKeyLabels();
     this.ui.refreshKeyLabels();
     this.difficulty = DIFFICULTY[this.settings.difficulty] || DIFFICULTY.normal;
@@ -75,11 +76,16 @@ export class Game {
 
   // ------------------------------------------------------------ settings
   loadSettings() {
-    const def = { sens: 1, invertY: false, fov: 65, master: 0.8, music: 0.55, sfx: 0.9, quality: 'medium', difficulty: 'normal', shake: true, dmgNumbers: true, fps: false, bindings: null };
+    // toggles: true = one press switches the action on and the next switches it off; false = hold the key
+    const def = { sens: 1, invertY: false, fov: 65, master: 0.8, music: 0.55, sfx: 0.9, quality: 'medium', difficulty: 'normal', shake: true, dmgNumbers: true, fps: false, bindings: null, toggles: { sprint: false, block: false, sneak: true } };
     const s = storage(() => JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null'));
     // mobile / small GPUs start on low quality
     if (!s && (window.innerWidth < 900 || /Mobi|Android/i.test(navigator.userAgent))) def.quality = 'low';
-    return { ...def, ...(s || {}) };
+    const out = { ...def, ...(s || {}) };
+    const t = s && s.toggles && typeof s.toggles === 'object' ? s.toggles : {};
+    out.toggles = {};
+    for (const k of Object.keys(def.toggles)) out.toggles[k] = typeof t[k] === 'boolean' ? t[k] : def.toggles[k];
+    return out;
   }
 
   setSetting(k, v) {
@@ -98,6 +104,20 @@ export class Game {
   saveBindings() {
     this.settings.bindings = this.input.exportSlots();
     this.saveSettings();
+  }
+
+  /** Sprint / block / sneak: hold the key, or press once to switch on and again to switch off. */
+  setToggleMode(action, on) {
+    this.settings.toggles = { ...this.settings.toggles, [action]: !!on };
+    this.applyToggles();
+    this.saveSettings();
+  }
+
+  applyToggles() {
+    const t = this.settings.toggles;
+    this.input.setToggle('sprint', t.sprint);
+    this.input.setToggle('block', t.block);
+    // sneak is a gameplay toggle already; the player reads settings.toggles.sneak directly
   }
 
   /** Key name for hints, as bold HTML; follows the player's bindings and device. */
@@ -195,6 +215,8 @@ export class Game {
     p.tonics = fresh ? 1 : (prog.tonics ?? p.maxTonics);
     const cp = prog.checkpoint || this.city.spawn;
     p.spawn(cp.x, cp.y, cp.z, cp.yaw ?? 0);
+    p.sneaking = false;
+    this.input.clearLatches();
     this.camera.snapBehind(cp.yaw ?? 0);
     this.camera.cinematic = null;
     this.sightOn = false;
@@ -215,7 +237,7 @@ export class Game {
     this.wantLockHint = true;
     if (this.tutorialStep === 0) {
       this.ui.banner('VELLANO', 'The city burns. The Creed hunts.');
-      setTimeout(() => this.ui.hint(`Hold ${this.key('sprint')} to sprint. Run at a wall to climb it, and leap gaps between rooftops automatically.`, 9), 2500);
+      setTimeout(() => this.ui.hint(`${this.settings.toggles.sprint ? `Press ${this.key('sprint')} to sprint, and again to walk.` : `Hold ${this.key('sprint')} to sprint.`} Run at a wall to climb it, and leap gaps between rooftops automatically.`, 9), 2500);
     }
   }
 
@@ -374,6 +396,8 @@ export class Game {
     p.stamina = p.maxStamina;
     p.fury = 0;
     p.lockTarget = null;
+    p.sneaking = false;
+    this.input.clearLatches();
     p.invuln = 2;
     p.tonics = Math.max(p.tonics, 1);
     this.camera.snapBehind(cp.yaw ?? 0);
@@ -398,7 +422,7 @@ export class Game {
       if (this.state !== 'playing') return;
       if (!this.combatHinted && Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z) < 30) {
         this.combatHinted = true;
-        setTimeout(() => this.ui.hint(`Demons flash <span style="color:#ffd35a">yellow</span> before a parryable strike: tap ${this.key('block')} as it lands to <b>parry</b> and counter. <span style="color:#ff6a5a">Red</span> strikes: ${this.key('dodge')} dodge / ${this.key('jump')} roll. ${this.key('cast')} casts your Sigil.`, 10), 1200);
+        setTimeout(() => this.ui.hint(`Demons flash <span style="color:#ffd35a">yellow</span> before a parryable strike: ${this.settings.toggles.block ? `press ${this.key('block')} as it lands to raise your guard and <b>parry</b>; press it again to lower your guard` : `tap ${this.key('block')} as it lands to <b>parry</b> and counter`}. <span style="color:#ff6a5a">Red</span> strikes: ${this.key('dodge')} dodge / ${this.key('jump')} roll. ${this.key('cast')} casts your Sigil.`, 10), 1200);
       }
       if (!this.lastAlertSound || this.realTime - this.lastAlertSound > 4) {
         this.lastAlertSound = this.realTime;
@@ -520,6 +544,7 @@ export class Game {
       case 'controls': ui.show('controls'); break;
       case 'bind': ui.startCapture(btn); break;
       case 'resetBinds': ui.resetBindings(); break;
+      case 'holdMode': ui.switchHoldMode(btn); break;
       case 'settings': ui.show('settings'); break;
       case 'back': ui.show(this.state === 'title' ? 'title' : 'pause'); break;
       case 'title': this.toTitle(); break;

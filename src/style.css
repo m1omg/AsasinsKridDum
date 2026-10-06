@@ -189,6 +189,9 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .binds .act { font: 17px/1.25 var(--body); color: var(--ink); }
 .btn.slot { font: 600 13px var(--heading); letter-spacing: 0.03em; text-transform: none; padding: 6px 8px; min-height: 34px; min-width: 0; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(216, 164, 70, 0.3); color: var(--gold-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
 .btn.slot.empty { color: var(--ink-dim); }
+.btn.mode { grid-column: span 3; font: 600 14px var(--heading); letter-spacing: 0.03em; text-transform: none; text-align: left; padding: 7px 12px; min-height: 34px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(216, 164, 70, 0.3); color: var(--ink); }
+.btn.mode b { color: var(--gold-hi); font-weight: 700; margin-right: 2px; }
+.btn.mode:hover, .btn.mode.focus { border-color: var(--gold-hi); background: rgba(150, 40, 18, 0.55); color: #fff3d8; }
 .btn.slot:hover, .btn.slot.focus { border-color: var(--gold-hi); background: rgba(150, 40, 18, 0.55); color: #fff3d8; }
 .btn.slot.capturing { border-color: #fff3d8; color: #fff3d8; background: rgba(190, 60, 20, 0.65); animation: slot-pulse 0.9s ease-in-out infinite alternate; }
 @keyframes slot-pulse { from { box-shadow: 0 0 0 rgba(255, 140, 60, 0); } to { box-shadow: 0 0 14px rgba(255, 140, 60, 0.75); } }

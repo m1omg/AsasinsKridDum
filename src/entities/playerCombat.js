@@ -278,7 +278,7 @@ const C = {
       if (input.buffered('attack', 0.18)) {
         input.consume('attack');
         if (input.held('sprint') && this.speed2d > 5.5 && !this.drawn) this.startAttack('heavy');
-        else this.startAttack(input.held('sprint') ? 'heavy' : 'light');
+        else this.startAttack(input.keyHeld('sprint') ? 'heavy' : 'light');
         return;
       }
       if (input.buffered('heavy', 0.18)) { input.consume('heavy'); this.startAttack('heavy'); return; }
@@ -286,7 +286,11 @@ const C = {
       if (input.pressed('cast')) { this.castSigil(); return; }
       if (input.pressed('knife')) { this.throwKnife(); return; }
       if (input.pressed('tonic')) { this.drinkTonic(); return; }
-      if (input.held('block') && this.drawn) { this.setState('block'); this.blockStart = this.time; this.blocking = true; this.anim = { clip: 'block', t: 0 }; return; }
+      if (input.held('block')) {
+        if (this.drawn) { this.setState('block'); this.blockStart = this.time; this.blocking = true; this.anim = { clip: 'block', t: 0 }; return; }
+        // toggled block with nothing to guard against doesn't stay switched on
+        input.unlatch('block');
+      }
     } else if (st === 'air' || st === 'climb') {
       if (input.pressed('interact') && this.prompt && (this.prompt.kind === 'airAssassinate' || this.prompt.kind === 'ledgeAssassinate')) { this.doPrompt(); return; }
       if (st === 'air' && input.pressed('knife')) this.throwKnife(true);
@@ -446,7 +450,7 @@ const C = {
     let def = this.attackDef;
     // charging a strong attack -> Rend
     if (this.attackKind === 'heavy' && this.charging) {
-      const holding = input.held('heavy') || (input.held('attack') && input.held('sprint'));
+      const holding = input.held('heavy') || (input.held('attack') && input.keyHeld('sprint'));
       if (holding && this.stateTime > 0.18) {
         this.chargeT += dt;
         this.anim = { clip: 'rend', t: 0, fast: true };
@@ -495,7 +499,7 @@ const C = {
     if (u >= def.hit[0] && u <= def.hit[1]) this.meleeSweep(def);
     // combo queue (Witcher: chain fast attacks)
     if (u > 0.3) {
-      if (input.buffered('attack', 0.3)) { this.queued = input.held('sprint') ? 'heavy' : 'light'; input.consume('attack'); }
+      if (input.buffered('attack', 0.3)) { this.queued = input.keyHeld('sprint') ? 'heavy' : 'light'; input.consume('attack'); }
       if (input.buffered('heavy', 0.3)) { this.queued = 'heavy'; input.consume('heavy'); }
     }
     // cancel into dodge / roll after the strike
@@ -570,6 +574,8 @@ const C = {
   st_block(dt) {
     const input = this.input;
     this.blocking = true;
+    // a toggled guard lowers itself once no demons are near
+    if (this.combatT <= 0) input.unlatch('block');
     if (!input.held('block')) { this.blocking = false; this.anim = null; this.setState('ground'); return; }
     // slow walk while guarding, face the target
     const md = this.moveDir(this._mdc || (this._mdc = {}));

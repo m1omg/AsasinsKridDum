@@ -50,6 +50,8 @@ export class Player {
     this.lastGrounded = 0;
     this.fallStartY = 0;
     this.sneaking = false;
+    this.sprintMoved = false; // toggled sprint: has the player moved since switching it on
+    this.sprintIdle = 0;
     this.sprinting = false;
     this.moveAmount = 0;
     this.speed2d = 0;
@@ -145,7 +147,15 @@ export class Player {
   st_ground(dt) {
     const input = this.input;
     const md = this.moveDir(this._md || (this._md = {}));
-    if (input.pressed('sneak')) this.sneaking = !this.sneaking;
+    // sneak: a press switches it (default) or it lasts while the key is held (setting)
+    if (this.game.settings?.toggles?.sneak === false) this.sneaking = input.held('sneak');
+    else if (input.pressed('sneak')) this.sneaking = !this.sneaking;
+    if (input.isToggle('sprint') && input.held('sprint')) {
+      // toggled sprint ends when the player starts sneaking or stops moving
+      if (input.pressed('sneak')) input.unlatch('sprint');
+      else if (md.len > 0.3) { this.sprintMoved = true; this.sprintIdle = 0; }
+      else if (this.sprintMoved && (this.sprintIdle += dt) > 0.3) { input.unlatch('sprint'); this.sprintMoved = false; }
+    } else { this.sprintMoved = false; this.sprintIdle = 0; }
     const wantsSprint = input.held('sprint') && md.len > 0.3;
     if (wantsSprint) this.sneaking = false;
     this.sprinting = wantsSprint && !this.blocking;
