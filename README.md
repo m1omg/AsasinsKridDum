@@ -12,6 +12,8 @@ You are the last blade of the Ashen Creed in Vellano, an Italian city in 1499. H
 
 The easiest way: open **`dist/index.html`** in Chrome, Edge or Firefox. It is one self-contained file with the code and textures inlined, so you can double-click it with no server and no install.
 
+**Online:** the workflow in `.github/workflows/pages.yml` builds the game and publishes it to GitHub Pages at <https://m1omg.github.io/AsasinsKridDum/> on every push. It needs Pages switched on once in the repository: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+
 To run from source:
 
 ```bash
