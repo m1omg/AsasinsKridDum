@@ -68,7 +68,7 @@ const SKIN = [0.42, 0.3, 0.24];
 export function buildAssassin(materials) {
   // the Higgsfield-generated assassin when its data is bundled, else the procedural one
   if (hasGenerated('hero')) {
-    const rig = buildGenerated('hero', { roughness: 0.82, rim: 0x8aa6d8, rimStrength: 0.28 });
+    const rig = buildGenerated('hero', { roughness: 0.82, rim: 0x8aa6d8, rimStrength: 0.2, glow: 0.7 });
     // scabbard across the back (the generated mesh has none)
     const d = rig.dims;
     const dir = new THREE.Vector3(0.42, -0.9, -0.06).normalize();
@@ -198,7 +198,37 @@ function finishAssassin(rig, d) {
   rig.bones.foreL.add(hbPivot);
   hb.scale.y = 0.05;
 
-  return { ...rig, sword, hiddenBlade: hb, dims: d };
+  // ---- hand crossbow (left hip, drawn into the left hand to shoot).
+  // Built along -Y (the way an outstretched hand points) with its top toward +Z.
+  const crossbow = new THREE.Group();
+  const wood = new THREE.MeshStandardMaterial({ color: 0x4b2e1a, roughness: 0.72 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x7d838c, metalness: 0.85, roughness: 0.35 });
+  const cord = new THREE.MeshStandardMaterial({ color: 0xcfc6a8, roughness: 0.9 });
+  const box = (w, h, dd, mat, x, y, z, rz = 0, rx = 0) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, dd), mat);
+    m.position.set(x, y, z);
+    m.rotation.set(rx, 0, rz);
+    crossbow.add(m);
+    return m;
+  };
+  box(0.034, 0.36, 0.045, wood, 0, -0.12, 0.05); // stock
+  box(0.03, 0.035, 0.1, wood, 0, 0.0, -0.01, 0, -0.35); // grip
+  box(0.05, 0.03, 0.05, steel, 0, -0.29, 0.05); // nose
+  for (const sx of [1, -1]) {
+    box(0.2, 0.022, 0.026, steel, sx * 0.1, -0.272, 0.06, sx * 0.24); // prod limb, bent back
+    const tipX = sx * 0.195, tipY = -0.225;
+    const len = Math.hypot(tipX, tipY + 0.03);
+    box(len, 0.004, 0.004, cord, tipX / 2, (tipY - 0.03) / 2, 0.062, Math.atan2(tipY + 0.03, tipX)); // string
+  }
+  const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.34, 6), wood);
+  bolt.position.set(0, -0.19, 0.082);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.015, 0.05, 6), steel);
+  head.rotation.x = Math.PI;
+  head.position.set(0, -0.385, 0.082);
+  crossbow.add(bolt, head);
+  crossbow.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+
+  return { ...rig, sword, crossbow, hiddenBlade: hb, dims: d };
 }
 
 /** Attach the sword either to the right hand (drawn) or the left hip (sheathed). */
@@ -215,6 +245,21 @@ export function placeSword(model, drawn) {
     sword.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
     if (model.dims.swordBack) sword.position.copy(model.dims.swordBack);
     else sword.position.set(-0.17, 1.6 - model.dims.hipY - 0.33, -0.2).addScaledVector(dir, 0.06);
+  }
+}
+
+/** Hand crossbow: in the left hand (shooting) or hanging at the left hip. */
+export function placeCrossbow(model, inHand) {
+  const { crossbow, bones } = model;
+  const k = (model.dims.height || 1.8) / 1.8;
+  if (inHand) {
+    bones.handL.add(crossbow);
+    crossbow.position.set(0, -0.06 * k, 0);
+    crossbow.rotation.set(0, 0, 0);
+  } else {
+    bones.hips.add(crossbow);
+    crossbow.position.set(0.2 * k, -0.05 * k, -0.05 * k);
+    crossbow.rotation.set(0.12, Math.PI / 2, 0);
   }
 }
 

@@ -13,7 +13,7 @@ const ICONS = {
   aegis: '<svg viewBox="0 0 24 24"><path fill="none" stroke="#ffd36a" stroke-width="2.2" d="M12 2l8 4.5v11L12 22l-8-4.5v-11z"/><circle cx="12" cy="12" r="3" fill="#ffd36a"/></svg>',
   snare: '<svg viewBox="0 0 24 24" fill="none" stroke="#c78bff" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 5l6 11H6z"/></svg>',
   hex: '<svg viewBox="0 0 24 24" fill="none" stroke="#7dffb0" stroke-width="2"><path d="M12 4c5 0 8 4 8 8s-3 6-6 6-5-2-5-5 2-4 4-4 3 1 3 3"/></svg>',
-  knife: '<svg viewBox="0 0 24 24"><path fill="#dfe6ee" d="M20 3l-9 9 1.5 1.5L21.5 4.5z"/><path fill="#8a6a40" d="M10 12.5l1.5 1.5-5 5-1.5-1.5z"/><path fill="#d8a446" d="M8.5 11l4.5 4.5-1 1L7.5 12z"/></svg>',
+  crossbow: '<svg viewBox="0 0 24 24"><path d="M4 5c4.5 1 10 6.5 15 15" stroke="#c9ced6" stroke-width="1.8" fill="none" stroke-linecap="round"/><path d="M4.6 5.6L18.4 19.4" stroke="#e8e0c8" stroke-width="0.7"/><path d="M9 10l4-4 1.4 1.4-4 4z" fill="#8a6a40"/><path d="M11.3 12.7L19.5 4.5" stroke="#8a6a40" stroke-width="2.4" stroke-linecap="round"/><path d="M19.5 4.5l1.8-1.8" stroke="#dfe6ee" stroke-width="1.6" stroke-linecap="round"/><path d="M8.7 15.3l2.6-2.6 1.6 1.6-2.6 2.6z" fill="#d8a446"/></svg>',
   tonic: '<svg viewBox="0 0 24 24"><path fill="#8a1a14" d="M9 9h6l3 8a3 3 0 0 1-3 4H9a3 3 0 0 1-3-4z"/><path fill="#d8c8a8" d="M10 3h4v6h-4z"/><path fill="#ff4a3a" d="M8 14h8l1.4 3.5A2 2 0 0 1 15.5 20h-7a2 2 0 0 1-1.9-2.5z"/></svg>',
 };
 
@@ -33,7 +33,7 @@ const UPGRADES = [
   { id: 'blade', name: 'Ashen Blade', desc: '+18% sword damage.', costs: [1, 2, 2] },
   { id: 'vigor', name: 'Vigor', desc: '+30 stamina and faster recovery for Sigils.', costs: [1, 2] },
   { id: 'sigils', name: 'Sigil Mastery', desc: 'Sigils are 30% more potent.', costs: [1, 2] },
-  { id: 'quiver', name: 'Bandolier', desc: 'Carry 3 more throwing knives.', costs: [1, 1] },
+  { id: 'quiver', name: 'Bandolier', desc: 'Carry 4 more crossbow bolts.', costs: [1, 1] },
   { id: 'tonic', name: 'Alchemist', desc: 'Carry one more Blood Tonic.', costs: [1, 2] },
   { id: 'shadow', name: 'Shadow of the Creed', desc: 'Demons notice you 20% slower.', costs: [1, 2] },
 ];
@@ -55,7 +55,7 @@ const ACTION_GROUPS = [
   ['Sigils and items', [
     ['cast', 'Cast Sigil'], ['sigilNext', 'Next Sigil'], ['sigilPrev', 'Previous Sigil'],
     ...SIGILS.map((sg, i) => [`sigil${i + 1}`, `Choose ${sg.name}`]),
-    ['knife', 'Throwing knife'], ['tonic', 'Blood Tonic (heal)'],
+    ['crossbow', 'Crossbow'], ['tonic', 'Blood Tonic (heal)'],
   ]],
   ['Camera keys', [
     ['lookLeft', 'Turn camera left'], ['lookRight', 'Turn camera right'], ['lookUp', 'Look up'], ['lookDown', 'Look down'],
@@ -149,7 +149,7 @@ export class UI {
     <div class="objective"><div class="title">Objective</div><div class="text"></div><div class="sub"></div></div>
   </div>
   <div class="hud-br">
-    <div class="item knives">${ICONS.knife}<span class="n">5</span><span class="k">G</span></div>
+    <div class="item bolts">${ICONS.crossbow}<span class="n">10</span><span class="k">G</span></div>
     <div class="item tonics">${ICONS.tonic}<span class="n">3</span><span class="k">H</span></div>
   </div>
   <div class="hint"></div>
@@ -423,7 +423,7 @@ export class UI {
   refreshKeyLabels() {
     const input = this.game.input;
     this.h.sigils.forEach((el, i) => { el.querySelector('.k').textContent = input.label(`sigil${i + 1}`, 'kbm', true); });
-    this.h.knives.querySelector('.k').textContent = input.label('knife', input.lastDevice, true);
+    this.h.bolts.querySelector('.k').textContent = input.label('crossbow', input.lastDevice, true);
     this.h.tonics.querySelector('.k').textContent = input.label('tonic', input.lastDevice, true);
     if (this.screen === 'controls') this.refreshBindings();
   }
@@ -436,7 +436,8 @@ export class UI {
     this.$('.howto').innerHTML = `
   <p>${sprint} and run at a wall to climb it; at a ledge press ${k('forward')} or ${k('jump')} to pull up. Sprint off a roof edge to leap to the next rooftop automatically. Land in hay to break a fall and hide.</p>
   <p>Demons that spot you fill a meter above their heads: yellow means suspicious, red means you've been seen. Sneak (${k('sneak')}), stay above their line of sight and strike unaware demons with ${k('interact')} for an instant assassination, even from above or from inside a hay cart.</p>
-  <p>In open combat, demons flash <span style="color:#ffd35a">yellow</span> before a parryable strike: ${parry}. <span style="color:#ff5a4a">Red</span> attacks can't be blocked, so dodge (${k('dodge')}) or roll (${k('jump')}). Badly wounded demons stagger and glow: press ${k('interact')} for a Glory Kill that showers health. Burning demons drop armor; assassinations drop knives.</p>`;
+  <p>In open combat, demons flash <span style="color:#ffd35a">yellow</span> before a parryable strike: ${parry}. <span style="color:#ff5a4a">Red</span> attacks can't be blocked, so dodge (${k('dodge')}) or roll (${k('jump')}). Badly wounded demons stagger and glow: press ${k('interact')} for a Glory Kill that showers health. Burning demons drop armor; assassinations drop crossbow bolts.</p>
+  <p>The crossbow (${k('crossbow')}) aims itself at the demon in front of you, high or low: snipe from the rooftops, or shoot a flying Gazer out of the air and finish it with the sword. Unaware Thralls and Imps die from a single bolt.</p>`;
   }
 
   // ------------------------------------------------------------ HUD refs
@@ -452,7 +453,7 @@ export class UI {
       minimap: $('.minimap'),
       status: $('.status'),
       objTitle: $('.objective .title'), objText: $('.objective .text'), objSub: $('.objective .sub'),
-      knives: $('.item.knives'), knivesN: $('.item.knives .n'),
+      bolts: $('.item.bolts'), boltsN: $('.item.bolts .n'),
       tonics: $('.item.tonics'), tonicsN: $('.item.tonics .n'),
       hint: $('.hint'),
       prompt: $('.prompt'), promptLabel: $('.prompt .label'), promptKey: $('.prompt .key'),
@@ -516,8 +517,8 @@ export class UI {
       this.setClass('sigs' + i, s, 'nost', p.stamina < SIGILS[i].cost);
     });
     this.setText('sname', h.sigilName, SIGILS[p.sigil].name + (p.aegis > 0 ? ' · ward active' : ''));
-    this.setText('kn', h.knivesN, String(p.knives));
-    this.setClass('kne', h.knives, 'empty', p.knives === 0);
+    this.setText('kn', h.boltsN, String(p.bolts));
+    this.setClass('kne', h.bolts, 'empty', p.bolts === 0);
     this.setText('tn', h.tonicsN, String(p.tonics));
     this.setClass('tne', h.tonics, 'empty', p.tonics === 0);
     // stealth status

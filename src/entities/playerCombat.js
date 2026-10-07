@@ -8,7 +8,7 @@ import { clamp, damp, dampAngle, angleDiff, approach, yawTo, rand, lerp, smooths
 //    attacks (hold for a charged "Rend"), hard lock-on, soft targeting
 //  * hold block, timed parry -> riposte counter; dodge & roll with i-frames
 //  * five Sigils (Pyre/Gust/Aegis/Snare/Hex) costing stamina
-//  * adrenaline "Fury" pips, throwing knives, healing tonic
+//  * adrenaline "Fury" pips, a hand crossbow, healing tonic
 //  * AC assassinations (ground, from above, from hay, ledge) with the hidden
 //    blade, and Doom glory kills on staggered demons (health orbs).
 // ---------------------------------------------------------------------------
@@ -17,7 +17,7 @@ export const SIGILS = [
   { id: 'pyre', name: 'Pyre', desc: 'Cone of hellfire. Burning demons drop armor shards.', color: '#ff7a2a', cost: 50 },
   { id: 'gust', name: 'Gust', desc: 'Telekinetic blast. Knocks down lesser demons.', color: '#9fd0ff', cost: 50 },
   { id: 'aegis', name: 'Aegis', desc: 'Protective ward that absorbs a heavy blow.', color: '#ffd36a', cost: 50 },
-  { id: 'snare', name: 'Snare', desc: 'Glyph trap: slows demons, drags Gazers down.', color: '#c78bff', cost: 50 },
+  { id: 'snare', name: 'Snare', desc: 'Glyph trap: slows demons. Cast at a Gazer to drag it down.', color: '#c78bff', cost: 50 },
   { id: 'hex', name: 'Hex', desc: 'Stuns a demon, leaving it open to a finisher.', color: '#7dffb0', cost: 50 },
 ];
 
@@ -128,10 +128,15 @@ export const PLAYER_CLIPS = {
     { t: 0.8, pose: { armR: [-0.7, 0.1, -0.2], foreR: [0, 0, 0], spine: [0.7, 0, 0], chest: [0.3, 0, 0], thighL: [-1.2, 0, 0.1], shinL: [1.3, 0, 0], thighR: [0.6, 0, -0.1] } },
     { t: 1, pose: { armR: [-0.8, 0.2, -0.3], foreR: [-0.5, 0, 0], spine: [0.4, 0, 0] } },
   ],
-  knife: [
-    { t: 0, pose: { armR: [-2.6, 0, -0.4], foreR: [-1.3, 0, 0], spine: [-0.1, -0.4, 0], armL: [-1.2, 0, 0.3], foreL: [-0.4, 0, 0] } },
-    { t: 0.45, pose: { armR: [-1.5, 0.2, -0.1], foreR: [-0.05, 0, 0], spine: [0.25, 0.3, 0], armL: [0.2, 0, 0.4], thighL: [-0.6, 0, 0], shinL: [0.6, 0, 0] } },
-    { t: 1, pose: { armR: [-0.8, 0.1, -0.2], foreR: [-0.6, 0, 0], spine: [0.1, 0.1, 0] } },
+  // hand crossbow in the left hand: raise, aim along the arm, kick, lower.
+  // The torso turns right to bring the left shoulder forward; armL z swings the
+  // arm back onto the target line (playerView adds the up/down aim).
+  shoot: [
+    { t: 0, pose: { hips: [0, 0.1, 0], armL: [-0.7, 0, 0.3], foreL: [-0.9, 0, 0], spine: [0, -0.1, 0], chest: [0, -0.05, 0] } },
+    { t: 0.3, pose: { hips: [0, 0, 0], armL: [-1.55, 0, 0.44], foreL: [-0.06, 0, 0], handL: [0.1, 0, 0], spine: [0.02, -0.25, 0], chest: [0, -0.2, 0], head: [0, 0.4, 0] } },
+    { t: 0.4, pose: { hips: [0, 0, 0], armL: [-1.66, 0, 0.44], foreL: [-0.12, 0, 0], handL: [-0.1, 0, 0], spine: [-0.02, -0.25, 0], chest: [-0.04, -0.2, 0], head: [0, 0.4, 0] } },
+    { t: 0.75, pose: { hips: [0, 0, 0], armL: [-1.52, 0, 0.42], foreL: [-0.1, 0, 0], spine: [0.02, -0.22, 0], chest: [0, -0.18, 0], head: [0, 0.35, 0] } },
+    { t: 1, pose: { hips: [0, 0.15, 0], armL: [-0.4, 0, 0.15], foreL: [-0.6, 0, 0] } },
   ],
   tonic: [
     { t: 0, pose: { armL: [-0.6, 0, 0.3], foreL: [-1.6, 0, 0], head: [0, 0, 0] } },
@@ -145,6 +150,8 @@ export const PLAYER_CLIPS = {
 };
 
 const _v = new THREE.Vector3();
+const BOLTS = 10; // crossbow bolts carried without upgrades
+const BOLT_SPEED = 62;
 
 // ------------------------------------------------------------------ mixin
 const C = {
@@ -154,8 +161,8 @@ const C = {
     this.staminaDelay = 0;
     this.fury = 0;
     this.furyHits = 0;
-    this.knives = 5;
-    this.maxKnives = 5;
+    this.bolts = BOLTS;
+    this.maxBolts = BOLTS;
     this.tonics = 3;
     this.maxTonics = 3;
     this.sigil = 0;
@@ -190,7 +197,7 @@ const C = {
     this.staminaRegen = 22 + (u.vigor || 0) * 7;
     this.dmgMul = 1 + (u.blade || 0) * 0.18;
     this.sigilMul = 1 + (u.sigils || 0) * 0.3;
-    this.maxKnives = 5 + (u.quiver || 0) * 3;
+    this.maxBolts = BOLTS + (u.quiver || 0) * 4;
     this.maxTonics = 3 + (u.tonic || 0);
     this.stealthMul = 1 - (u.shadow || 0) * 0.2;
     this.hp = Math.min(this.hp, this.maxHp);
@@ -261,7 +268,7 @@ const C = {
     if (this.lockTarget && (this.lockTarget.dead || this.distTo(this.lockTarget) > 22)) this.lockTarget = null;
     if (input.pressed('lock')) {
       if (this.lockTarget) this.lockTarget = this.nextLockTarget(this.lockTarget);
-      else this.lockTarget = this.bestTarget(18, 1.2);
+      else this.lockTarget = this.bestTarget(18, 1.2, true, true);
       if (!this.lockTarget && input.actions.lock.down) this.lockTarget = null;
     }
     // sigil selection
@@ -284,7 +291,7 @@ const C = {
       if (input.buffered('heavy', 0.18)) { input.consume('heavy'); this.startAttack('heavy'); return; }
       if (input.pressed('dodge')) { this.startDodge(false); return; }
       if (input.pressed('cast')) { this.castSigil(); return; }
-      if (input.pressed('knife')) { this.throwKnife(); return; }
+      if (input.pressed('crossbow')) { this.shootCrossbow(); return; }
       if (input.pressed('tonic')) { this.drinkTonic(); return; }
       if (input.held('block')) {
         if (this.drawn) { this.setState('block'); this.blockStart = this.time; this.blocking = true; this.anim = { clip: 'block', t: 0 }; return; }
@@ -293,7 +300,7 @@ const C = {
       }
     } else if (st === 'air' || st === 'climb') {
       if (input.pressed('interact') && this.prompt && (this.prompt.kind === 'airAssassinate' || this.prompt.kind === 'ledgeAssassinate')) { this.doPrompt(); return; }
-      if (st === 'air' && input.pressed('knife')) this.throwKnife(true);
+      if (st === 'air' && input.pressed('crossbow')) this.shootCrossbow(true);
     } else if (st === 'hidden') {
       if (input.pressed('interact') && this.prompt && this.prompt.kind === 'hayAssassinate') { this.doPrompt(); return; }
     }
@@ -301,8 +308,12 @@ const C = {
 
   distTo(e) { return Math.hypot(e.pos.x - this.pos.x, e.pos.z - this.pos.z); },
 
-  /** Best target in front of the player / camera within range. */
-  bestTarget(range = 6, cone = 1.4, useMove = true) {
+  /**
+   * Best target in front of the player / camera within range. Melee looks at
+   * about the player's own height; `ranged` (crossbow, lock-on, Hex) takes any
+   * demon in sight: Gazers overhead, or demons in the street below a rooftop.
+   */
+  bestTarget(range = 6, cone = 1.4, useMove = true, ranged = false) {
     let best = null, bestScore = Infinity;
     let dirYaw = this.camYaw;
     if (useMove) {
@@ -312,15 +323,28 @@ const C = {
     for (const e of this.game.director.enemies) {
       if (e.dead || e.state === 'spawn') continue;
       const dy = e.pos.y - this.pos.y;
-      if (Math.abs(dy) > (e.def.flies ? 6 : 2.5)) continue;
+      if (ranged ? dy > 16 || dy < -22 : Math.abs(dy) > (e.def.flies ? 6 : 2.5)) continue;
       const d = this.distTo(e);
       if (d > range) continue;
       const ang = Math.abs(angleDiff(dirYaw, yawTo(this.pos.x, this.pos.z, e.pos.x, e.pos.z)));
       if (ang > cone && d > 2.2) continue;
-      const score = d + ang * 3 - (e.alerted ? 1 : 0);
-      if (score < bestScore) { bestScore = score; best = e; }
+      const score = d + ang * 3 - (e.alerted ? 1 : 0) + (ranged ? Math.abs(dy) * 0.1 : 0);
+      if (score >= bestScore) continue;
+      if (ranged && !this.canSee(e)) continue;
+      bestScore = score; best = e;
     }
     return best;
+  },
+
+  /** Where to aim at a demon: the body of a Gazer, the chest of anything that walks. */
+  aimPoint(e, out) {
+    return out.set(e.pos.x, e.pos.y + (e.def.flies ? 0 : e.def.height * (e.def.modelScale || 1) * 0.62), e.pos.z);
+  },
+
+  /** Clear line from the player's eyes to a demon. */
+  canSee(e) {
+    const a = this.aimPoint(e, _v);
+    return this.game.collision.lineClear(this.pos.x, this.pos.y + 1.55, this.pos.z, a.x, a.y, a.z);
   },
 
   nextLockTarget(cur) {
@@ -834,8 +858,9 @@ const C = {
     }
     this.stamina -= s.cost;
     this.staminaDelay = 1.0;
-    const tgt = this.lockTarget && !this.lockTarget.dead ? this.lockTarget : this.bestTarget(12, 1.0);
-    if (tgt && s.id !== 'aegis' && s.id !== 'snare') this.yaw = yawTo(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z);
+    const tgt = this.lockTarget && !this.lockTarget.dead ? this.lockTarget : this.bestTarget(14, 1.0, true, true);
+    const snareFlyer = s.id === 'snare' && tgt && tgt.def.flies;
+    if (tgt && s.id !== 'aegis' && (s.id !== 'snare' || snareFlyer)) this.yaw = yawTo(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z);
     else { const md = this.moveDir(this._mdc || (this._mdc = {})); if (md.len > 0.3 && s.id !== 'aegis') this.yaw = Math.atan2(md.x, md.z); }
     this.castId = s.id;
     this.castDone = false;
@@ -894,10 +919,16 @@ const C = {
       game.fx.magicSwirl(this.pos.x, this.pos.y + 1, this.pos.z, [2.4, 1.8, 0.5], 60, 1.0);
       game.audio?.play('sigilShield', { pos: this.pos, volume: 1 });
     } else if (id === 'snare') {
-      game.snares.add(this.pos.x, this.pos.y, this.pos.z, 4.2 * Math.sqrt(mul), 11);
+      // at a Gazer: the glyph opens under it and drags it down; otherwise at your feet
+      const t = this.castTarget;
+      if (t && !t.dead && t.def.flies && this.distTo(t) < 18) {
+        const g = game.collision.groundAt(t.pos.x, t.pos.z, 0.3, t.pos.y);
+        game.snares.add(t.pos.x, g.y, t.pos.z, 4.2 * Math.sqrt(mul), 11);
+        game.fx.magicSwirl(t.pos.x, t.pos.y, t.pos.z, [1.4, 0.6, 2.4], 30, 0.9);
+      } else game.snares.add(this.pos.x, this.pos.y, this.pos.z, 4.2 * Math.sqrt(mul), 11);
       game.audio?.play('sigilTrap', { pos: this.pos, volume: 1 });
     } else if (id === 'hex') {
-      const t = this.castTarget && !this.castTarget.dead && this.distTo(this.castTarget) < 12 ? this.castTarget : this.bestTarget(12, 0.9, false);
+      const t = this.castTarget && !this.castTarget.dead && this.distTo(this.castTarget) < 14 ? this.castTarget : this.bestTarget(14, 0.9, false, true);
       game.audio?.play('sigilHex', { pos: this.pos, volume: 1 });
       if (t) {
         game.fx.magicSwirl(t.pos.x, t.pos.y + (t.def.flies ? 0 : t.def.height * 0.7), t.pos.z, [0.6, 2.4, 1.0], 40, 0.7);
@@ -908,38 +939,57 @@ const C = {
     game.events.emit('sigil', id);
   },
 
-  // ------------------------------------------------------------ knives / tonic
-  throwKnife(inAir = false) {
+  // ------------------------------------------------------------ crossbow / tonic
+  /** Hand crossbow: aims itself at the best demon in sight, at any height. */
+  shootCrossbow(inAir = false) {
     const game = this.game;
-    if (this.knives <= 0) { game.audio?.play('noStamina', { volume: 0.5 }); game.events.emit('noKnives'); return; }
-    this.knives--;
-    const tgt = this.lockTarget && !this.lockTarget.dead ? this.lockTarget : this.bestTarget(25, 0.7, false) || this.bestTarget(25, 0.9);
-    const from = new THREE.Vector3(this.pos.x + Math.sin(this.yaw) * 0.4, this.pos.y + 1.45, this.pos.z + Math.cos(this.yaw) * 0.4);
-    let dir;
-    if (tgt) {
-      const ty = tgt.pos.y + (tgt.def.flies ? 0 : tgt.def.height * 0.8);
-      const d = Math.hypot(tgt.pos.x - from.x, tgt.pos.z - from.z);
-      dir = new THREE.Vector3(tgt.pos.x - from.x, ty - from.y + d * d * 0.004, tgt.pos.z - from.z);
-      this.yaw = yawTo(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z);
-    } else {
-      const cy = this.camYaw, cp = this.game.camera.pitch;
-      dir = new THREE.Vector3(Math.sin(cy) * Math.cos(cp), -Math.sin(cp) + 0.05, Math.cos(cy) * Math.cos(cp));
-      this.yaw = cy;
-    }
-    game.director.projectiles.knife(from, dir, 35 * this.dmgMul, tgt);
-    game.audio?.play('knifeThrow', { pos: this.pos, volume: 0.8 });
-    if (!inAir) {
-      this.anim = { clip: 'knife', t: 0, rate: 1 / 0.36, fast: true };
-      this.vel.set(0, 0, 0);
-      this.setState('throw');
-    }
+    if (this.time < (this.reloadUntil || 0)) return;
+    if (this.bolts <= 0) { game.audio?.play('noStamina', { volume: 0.5 }); game.events.emit('noBolts'); return; }
+    const tgt = this.lockTarget && !this.lockTarget.dead ? this.lockTarget
+      : this.bestTarget(40, 0.6, false, true) || this.bestTarget(40, 1.0, true, true);
+    if (tgt) this.yaw = yawTo(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z);
+    else this.yaw = this.camYaw;
+    this.shotTarget = tgt;
+    this.reloadUntil = this.time + 0.6;
+    this.combatT = Math.max(this.combatT, 1.5);
+    if (inAir) { this.fireBolt(); return; }
+    this.shotFired = false;
+    this.anim = { clip: 'shoot', t: 0, rate: 1 / 0.55, fast: true };
+    this.vel.multiplyScalar(0.25);
+    this.setState('shoot');
   },
 
-  st_throw(dt) {
-    const u = this.stateTime / 0.36;
+  fireBolt() {
+    const game = this.game;
+    if (this.bolts <= 0) return;
+    this.bolts--;
+    const tgt = this.shotTarget && !this.shotTarget.dead ? this.shotTarget : null;
+    // launched from the outstretched left hand (simulation state only, never the rendered pose)
+    const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+    const from = new THREE.Vector3(this.pos.x + fx * 0.75 + fz * 0.12, this.pos.y + 1.42, this.pos.z + fz * 0.75 - fx * 0.12);
+    let dir;
+    if (tgt) {
+      const a = this.aimPoint(tgt, new THREE.Vector3());
+      const t = a.distanceTo(from) / BOLT_SPEED;
+      a.x += (tgt.vel?.x || 0) * t; a.z += (tgt.vel?.z || 0) * t; // lead a moving demon
+      dir = a.sub(from);
+    } else {
+      const cy = this.camYaw, cp = game.camera.pitch;
+      dir = new THREE.Vector3(Math.sin(cy) * Math.cos(cp), -Math.sin(cp) + 0.04, Math.cos(cy) * Math.cos(cp));
+    }
+    game.director.projectiles.bolt(from, dir, 45 * this.dmgMul * (game.difficulty?.dealt ?? 1), tgt);
+    game.audio?.play('crossbow', { pos: this.pos, volume: 0.9 });
+    this.noise = Math.max(this.noise, 0.3);
+    game.events.emit('crossbow', tgt);
+  },
+
+  st_shoot(dt) {
+    const u = this.stateTime / 0.55;
     if (this.anim) this.anim.t = Math.min(1, u);
+    if (u >= 0.32 && !this.shotFired) { this.shotFired = true; this.fireBolt(); }
+    this.vel.x = damp(this.vel.x, 0, 10, dt); this.vel.z = damp(this.vel.z, 0, 10, dt);
     this.integrateGround(dt);
-    if (u >= 1 && this.state === 'throw') { this.anim = null; this.setState('ground'); }
+    if (u >= 1 && this.state === 'shoot') { this.anim = null; this.setState('ground'); }
   },
 
   drinkTonic() {

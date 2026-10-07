@@ -1,14 +1,17 @@
 import * as THREE from 'three';
-import { buildAssassin, placeSword, idlePose, gaitPose, sneakPose, combatStance, climbPose, airPose, deadPose } from './humanoid.js';
+import { buildAssassin, placeSword, placeCrossbow, idlePose, gaitPose, sneakPose, combatStance, climbPose, airPose, deadPose } from './humanoid.js';
 import { sampleClip, overlayPose, blendPose } from './rig.js';
 import { CLIPS } from './clips.js';
 import { clamp, damp, dampFactor, smoothstep, angleDiff } from '../core/math.js';
 import { LAYER_XRAY } from '../render/renderer.js';
+import { humanoidFeet, gaitShape } from './footIK.js';
 
 // Renders + procedurally animates the assassin from the controller state.
 // Runs every rendered frame with (scaled) frame dt; reads interpolated state.
 
 const TMP = new THREE.Vector3();
+// states in which the feet are planted on the ground by IK
+const FOOT_IK = new Set(['ground', 'cast', 'shoot', 'tonic', 'block', 'hit']);
 
 export class PlayerView {
   constructor(game, materials) {
@@ -19,6 +22,8 @@ export class PlayerView {
     game.scene.add(this.mesh);
     placeSword(this.model, false);
     this.swordDrawn = false;
+    placeCrossbow(this.model, false);
+    this.bowOut = false;
     this.cur = {};
     this.target = {};
     this.act = {};
@@ -36,6 +41,15 @@ export class PlayerView {
     this.time = 0;
     this.hbExtend = 0;
     this.renderPos = new THREE.Vector3();
+    this.feet = humanoidFeet(this.model);
+    this._g = { y: 0, c: null };
+    this.ground = (x, z, maxY) => game.collision.groundAt(x, z, 0.12, maxY, this._g).y;
+    this.onStep = (leg, idle) => {
+      const p = game.player;
+      if (p.state !== 'ground') return;
+      const vol = idle ? 0.1 : p.sneaking ? 0.12 : clamp(0.18 + p.speed2d * 0.07, 0.2, 0.75);
+      game.audio?.play('step', { pos: p.pos, volume: vol, pitch: p.onBeam ? 1.25 : 1 });
+    };
   }
 
   setDrawn(drawn) {
@@ -62,16 +76,15 @@ export class PlayerView {
     let rootPitch = 0, rootRoll = 0, rootY = 0, poseRate = 12;
     let bob = 0;
     const stateT = p.stateTime + alpha * (1 / 60);
+    // stride matched to the legs: the planted foot keeps pace with the ground
+    const gait = gaitShape(speed, this.feet.legLen * this.mesh.scale.x);
+    if (p.sneaking) gait.stride *= 0.8;
     if (st === 'ground' || st === 'landroll' || p.groundLike) {
       const run = speed < 1.2 ? 0 : speed < 5.2 ? (speed - 1.2) / 3.7 : 1 + clamp((speed - 5.2) / 2.6, 0, 1);
-      const stride = p.sneaking ? 1.0 : run < 1 ? 1.25 + run * 1.0 : 2.25 + (run - 1) * 0.65;
       const before = Math.floor(this.phase / Math.PI);
-      this.phase += (speed * dt / stride) * Math.PI * 2;
-      // footstep at each foot contact
-      if (Math.floor(this.phase / Math.PI) !== before && speed > 0.6 && st === 'ground') {
-        const vol = p.sneaking ? 0.12 : clamp(0.18 + speed * 0.07, 0.2, 0.75);
-        this.game.audio?.play('step', { pos: p.pos, volume: vol, pitch: p.onBeam ? 1.25 : 1 });
-      }
+      this.phase += (speed * dt / gait.stride) * Math.PI * 2;
+      // footsteps come from the planted feet; without them, one per half cycle
+      if (this.feet.weight < 0.5 && Math.floor(this.phase / Math.PI) !== before && speed > 0.6 && st === 'ground') this.onStep(null, false);
       const moving = clamp(speed / 1.4, 0, 1);
       const combat = p.inCombatStance && p.inCombatStance() && !p.sprinting;
       if (p.sneaking) {
@@ -189,6 +202,17 @@ export class PlayerView {
       for (const n in this._clipTmp) delete this._clipTmp[n];
     }
 
+    // crossbow: tilt the aiming arm up or down onto the target
+    if (st === 'shoot' && p.shotTarget && !p.shotTarget.dead && pose.armL) {
+      const t = p.shotTarget;
+      const ty = t.pos.y + (t.def.flies ? 0 : t.def.height * (t.def.modelScale || 1) * 0.62);
+      const el = clamp(Math.atan2(ty - (p.pos.y + 1.42), Math.hypot(t.pos.x - p.pos.x, t.pos.z - p.pos.z)), -1.1, 1.2);
+      const w = this.actionWeight;
+      pose.armL[0] -= el * w;
+      if (pose.head) pose.head[0] -= el * 0.6 * w;
+      if (pose.spine) pose.spine[0] -= el * 0.15 * w;
+    }
+
     // landing squash
     if (p.fx.landing > 0) {
       this.landSquash = Math.max(this.landSquash, p.fx.landing);
@@ -220,6 +244,17 @@ export class PlayerView {
     } else bones.root.position.z = 0;
 
     this.updateTails(dt, p, speed);
+
+    // crossbow in hand while shooting
+    const bowOut = st === 'shoot';
+    if (bowOut !== this.bowOut) { this.bowOut = bowOut; placeCrossbow(this.model, bowOut); }
+
+    // plant the feet on the ground (IK) over the animated body
+    this.feet.update(dt, {
+      mesh: this.mesh, yaw: this.mesh.rotation.y, vel: p.vel, speed, phase: this.phase, gait,
+      want: FOOT_IK.has(st) ? 1 : 0,
+      ground: this.ground, narrow: p.onBeam, onStep: this.onStep,
+    });
 
     // hidden blade
     this.hbExtend = damp(this.hbExtend, p.hiddenBladeOut ? 1 : 0, 25, dt);

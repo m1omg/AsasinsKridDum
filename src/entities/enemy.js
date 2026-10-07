@@ -611,7 +611,7 @@ export class Enemy {
     const p = this.player;
     if (this.groundedT > 0) {
       // pulled down by the snare: crawl toward the player and bite
-      this.hoverAltitude(dt, 1.2, 6);
+      this.hoverAltitude(dt, 1.2, 6, true);
       const atk = this.pickAttack(dp, dy);
       if (atk) { this.startAttack(atk); return; }
       this.chase(p.pos.x, p.pos.z, d.walk * 0.7, dt);
@@ -629,9 +629,15 @@ export class Enemy {
     else this.strafe(p.pos.x, p.pos.z, d.walk, dt);
   }
 
-  hoverAltitude(dt, alt, rate = 2.5) {
-    // stay above rooftops along the way
+  hoverAltitude(dt, alt, rate = 2.5, low = false) {
     const c = this.col;
+    if (low) {
+      // brought down (shot, snared, hexed): just above whatever is below, in sword reach
+      const g = c.groundAt(this.pos.x, this.pos.z, 0.6, this.pos.y + 0.5);
+      this.pos.y = damp(this.pos.y, g.y + alt, rate, dt);
+      return;
+    }
+    // stay above rooftops along the way
     let top = 0;
     const fx = this.vel.x * 0.6, fz = this.vel.z * 0.6;
     for (const [ox, oz] of [[0, 0], [fx, fz], [fx * 2, fz * 2]]) {
@@ -686,7 +692,7 @@ export class Enemy {
   // ------------------------------------------------------------ reactions
   st_stagger(dt) {
     if (this.anim) this.anim.t = (this.stateTime % 1.0) / 1.0;
-    if (this.def.flies) this.hoverAltitude(dt, this.groundedT > 0 ? 1.2 : this.def.hover);
+    if (this.def.flies) this.hoverAltitude(dt, this.groundedT > 0 ? 1.2 : this.def.hover, this.groundedT > 0 ? 6 : 2.5, this.groundedT > 0);
     if (this.stateTime > this.staggerDur) {
       this.anim = null;
       this.parried = false;
@@ -697,13 +703,13 @@ export class Enemy {
   st_dazed(dt) {
     this.dazed -= dt;
     if (this.anim) this.anim.t = (this.stateTime % 1.2) / 1.2;
-    if (this.def.flies) this.hoverAltitude(dt, 2.5);
+    if (this.def.flies) this.hoverAltitude(dt, 1.6, 4, true); // hexed: sinks within sword reach
     if (this.dazed <= 0) { this.anim = null; this.setState('combat'); }
   }
 
   st_glory(dt) {
     if (this.anim) this.anim.t = (this.stateTime % 1.4) / 1.4;
-    if (this.def.flies) this.hoverAltitude(dt, 1.6, 4);
+    if (this.def.flies) this.hoverAltitude(dt, 1.6, 4, true);
     if (this.stateTime > 3.2) {
       this.anim = null;
       this.poise = this.def.poise;
@@ -726,7 +732,7 @@ export class Enemy {
 
   st_hit(dt) {
     if (this.anim) this.anim.t = Math.min(1, this.stateTime / 0.35);
-    if (this.def.flies) this.hoverAltitude(dt, this.groundedT > 0 ? 1.2 : this.def.hover);
+    if (this.def.flies) this.hoverAltitude(dt, this.groundedT > 0 ? 1.2 : this.def.hover, this.groundedT > 0 ? 6 : 2.5, this.groundedT > 0);
     if (this.stateTime > 0.35) { this.anim = null; this.setState('combat'); }
   }
 

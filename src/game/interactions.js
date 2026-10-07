@@ -43,10 +43,10 @@ export class Interactions {
     this.game.collision.box(c.x - 0.5, c.y, c.z - 0.5, c.x + 0.5, c.y + 0.55, c.z + 0.5, { kind: 'chest', blocksSight: false, blocksCamera: false });
     const roll = LOOT_RNG();
     let loot;
-    if (c.starter) loot = { tonic: 1, knives: 3, note: true };
-    else if (c.where === 'rift' || c.where === 'loggia' || c.where === 'house' || roll < 0.42) loot = { rune: 1, knives: 2 };
-    else if (roll < 0.7) loot = { tonic: 1, knives: 3 };
-    else loot = { knives: 4, armor: 25 };
+    if (c.starter) loot = { tonic: 1, bolts: 4, note: true };
+    else if (c.where === 'rift' || c.where === 'loggia' || c.where === 'house' || roll < 0.42) loot = { rune: 1, bolts: 3 };
+    else if (roll < 0.7) loot = { tonic: 1, bolts: 4 };
+    else loot = { bolts: 6, armor: 25 };
     return { id: 'c' + i, data: c, group: g, lid: lidPivot, open: false, openT: 0, loot };
   }
 
@@ -117,7 +117,7 @@ export class Interactions {
     const L = c.loot;
     const parts = [];
     if (L.rune) { game.progress.runes += L.rune; parts.push(`${L.rune} Ashen Rune`); game.audio?.play('pickupRune', { volume: 0.8 }); }
-    if (L.knives) { p.knives = Math.min(p.maxKnives, p.knives + L.knives); parts.push(`${L.knives} knives`); }
+    if (L.bolts) { p.bolts = Math.min(p.maxBolts, p.bolts + L.bolts); parts.push(`${L.bolts} bolts`); }
     if (L.tonic) { p.tonics = Math.min(p.maxTonics, p.tonics + L.tonic); parts.push('Blood Tonic'); }
     if (L.armor) { p.armor = Math.min(p.maxArmor, p.armor + L.armor); parts.push(`${L.armor} armor`); }
     game.ui?.notify('Chest: ' + parts.join(', '), 'loot');

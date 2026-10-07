@@ -210,9 +210,9 @@ export class Director {
     const y = e.pos.y + (e.def.flies ? 0 : 0.8);
     if (kind === 'glory') pk.spawn('health', e.pos.x, y, e.pos.z, 3 * big + 1);
     else if (kind === 'burn') { pk.spawn('armor', e.pos.x, y, e.pos.z, 3 * big); if (Math.random() < 0.5) pk.spawn('health', e.pos.x, y, e.pos.z, 1); }
-    else if (kind === 'assassinate') { pk.spawn('knife', e.pos.x, y, e.pos.z, 1); pk.spawn('health', e.pos.x, y, e.pos.z, 1); }
+    else if (kind === 'assassinate') { pk.spawn('bolt', e.pos.x, y, e.pos.z, 1); pk.spawn('health', e.pos.x, y, e.pos.z, 1); }
     else if (Math.random() < 0.45) pk.spawn('health', e.pos.x, y, e.pos.z, 1);
-    if (kind !== 'assassinate' && Math.random() < 0.25) pk.spawn('knife', e.pos.x, y, e.pos.z, 1);
+    if (kind !== 'assassinate' && Math.random() < 0.3) pk.spawn('bolt', e.pos.x, y, e.pos.z, 1);
     game.events.emit('enemyKilled', e, kind);
     if (e.arena && this.arena) this.arena.alive.delete(e);
     if (e.def.boss) this.onBossDeath(e);

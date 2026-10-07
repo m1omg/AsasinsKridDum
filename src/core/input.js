@@ -39,7 +39,7 @@ export const DEFAULT_SLOTS = {
   sigil3: ['Digit3', null, null],
   sigil4: ['Digit4', null, null],
   sigil5: ['Digit5', null, null],
-  knife: ['KeyG', null, 'Pad12'],
+  crossbow: ['KeyG', null, 'Pad12'],
   tonic: ['KeyH', null, 'Pad13'],
   lookLeft: ['KeyJ', 'Numpad4', null],
   lookRight: ['KeyL', 'Numpad6', null],
@@ -162,6 +162,8 @@ export class Input {
   /** Load saved bindings, falling back to defaults for anything missing or malformed. */
   setSlots(saved) {
     const out = copySlots(DEFAULT_SLOTS);
+    // the throwing knife became the crossbow: keep a player's binding for it
+    if (saved && typeof saved === 'object' && saved.knife && !saved.crossbow) saved = { ...saved, crossbow: saved.knife };
     if (saved && typeof saved === 'object') {
       for (const a of Object.keys(DEFAULT_SLOTS)) {
         const s = saved[a];

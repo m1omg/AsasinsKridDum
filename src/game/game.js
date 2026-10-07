@@ -223,7 +223,8 @@ export class Game {
     p.initCombat();
     p.hp = p.maxHp;
     p.armor = 0;
-    p.knives = fresh ? 5 : (prog.knives ?? 5);
+    // crossbow bolts (older saves counted throwing knives)
+    p.bolts = fresh ? p.maxBolts : Math.min(p.maxBolts, prog.bolts ?? (prog.knives != null ? prog.knives * 2 : p.maxBolts));
     p.tonics = fresh ? 1 : (prog.tonics ?? p.maxTonics);
     const cp = prog.checkpoint || this.city.spawn;
     p.spawn(cp.x, cp.y, cp.z, cp.yaw ?? 0);
@@ -256,7 +257,8 @@ export class Game {
   // ------------------------------------------------------------ save
   save() {
     const p = this.player;
-    this.progress.knives = p.knives;
+    this.progress.bolts = p.bolts;
+    delete this.progress.knives;
     this.progress.tonics = p.tonics;
     storage(() => localStorage.setItem(SAVE_KEY, JSON.stringify(this.progress)));
   }
@@ -335,7 +337,7 @@ export class Game {
     this.progress.runes += 2;
     const p = this.player;
     p.heal(p.maxHp);
-    p.knives = p.maxKnives;
+    p.bolts = p.maxBolts;
     p.tonics = p.maxTonics;
     const n = Object.values(this.progress.rifts).filter(Boolean).length;
     this.ui.banner('RIFT SEALED', `${rift.name} · ${n} of 3`);
@@ -432,6 +434,10 @@ export class Game {
     ev.on('alerted', (e) => {
       e.alertedAt = this.realTime;
       if (this.state !== 'playing') return;
+      if (e.def.flies && !this.gazerHinted && Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z) < 35) {
+        this.gazerHinted = true;
+        setTimeout(() => this.ui.hint(`Gazers fly out of sword reach. Shoot one down with the <b>crossbow</b> (${this.key('crossbow')}), or cast Snare or Hex at it, then finish it on the ground.`, 10), 800);
+      }
       if (!this.combatHinted && Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z) < 30) {
         this.combatHinted = true;
         setTimeout(() => this.ui.hint(`Demons flash <span style="color:#ffd35a">yellow</span> before a parryable strike: ${this.settings.toggles.block ? `press ${this.key('block')} as it lands to raise your guard and <b>parry</b>; press it again to lower your guard` : `tap ${this.key('block')} as it lands to <b>parry</b> and counter`}. <span style="color:#ff6a5a">Red</span> strikes: ${this.key('dodge')} dodge / ${this.key('jump')} roll. ${this.key('cast')} casts your Sigil.`, 10), 1200);
@@ -464,10 +470,10 @@ export class Game {
       if (!this.gloryHinted) { this.gloryHinted = true; this.ui.hint(`A staggered demon glows. Press ${this.key('interact')} for a <b>Glory Kill</b>: it bursts into health.`, 7); }
     });
     ev.on('noStamina', () => this.ui.notify('Not enough stamina', 'bad'));
-    ev.on('noKnives', () => this.ui.notify('No throwing knives', 'bad'));
+    ev.on('noBolts', () => this.ui.notify('Out of crossbow bolts', 'bad'));
     ev.on('noTonic', () => this.ui.notify(this.player.tonics <= 0 ? 'No Blood Tonics' : 'Already at full health', 'bad'));
     ev.on('assassination', () => {
-      if (!this.assassinHinted) { this.assassinHinted = true; this.ui.notify('Assassination: demons drop throwing knives', 'loot'); }
+      if (!this.assassinHinted) { this.assassinHinted = true; this.ui.notify('Assassination: demons drop crossbow bolts', 'loot'); }
     });
     ev.on('arenaStart', () => this.setMusic('combat'));
     ev.on('wave', (n, total) => this.ui.banner(`WAVE ${n}`, n === total ? 'The rift is failing!' : 'More pour through the rift'));
@@ -580,7 +586,7 @@ export class Game {
     const hpF = p.hp / p.maxHp;
     p.applyUpgrades();
     p.hp = Math.max(p.hp, hpF * p.maxHp);
-    if (id === 'quiver') p.knives = p.maxKnives;
+    if (id === 'quiver') p.bolts = p.maxBolts;
     if (id === 'tonic') p.tonics = Math.min(p.maxTonics, p.tonics + 1);
     this.audio.play('pickupRune', { volume: 0.8 });
     this.ui.renderUpgrades();

@@ -165,6 +165,7 @@ export const ZERO = [0, 0, 0];
 export function blendPose(out, a, b, t) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
   for (const k of keys) {
+    if (k[0] === '_') continue; // scalar extras such as _bob are not bone rotations
     const pa = a[k] || ZERO, pb = b[k] || ZERO;
     const o = out[k] || (out[k] = [0, 0, 0]);
     o[0] = pa[0] + (pb[0] - pa[0]) * t;

@@ -689,13 +689,18 @@ const SFX = {
     k.nz({ n: 'pink', a: 0.004, h: 0.02, d: 0.2, g: 0.8, ft: 'bandpass', f: [[0, 1100], [0.25, 300]], q: 1.1, am: [rand(30, 45), 0.7] });
     k.tex(0.01, 0.45, (d, sr) => crackles(d, sr, 22, 0.35, 250, 1300, 0.008, 0.025, 2, 6, 1.4), 0.8);
   } },
-  knifeThrow: { d: 0.22, v: 3, vol: 0.38, rev: 0.03, pv: 0.06, r(k) {
-    k.nz({ n: 'white', a: 0.03, d: 0.15, g: 0.9, ft: 'bandpass', f: [[0, 1500], [0.05, 3200], [0.18, 2000]], q: 3, am: [rand(35, 50), 0.6] });
+  // crossbow: string snap + wooden stock thunk + the bolt hissing away
+  crossbow: { d: 0.4, v: 3, vol: 0.5, rev: 0.06, pv: 0.05, r(k) {
+    k.thump(0, rand(210, 240), 85, 0.07, 0.8);
+    k.tone({ type: 'triangle', f: [[0, rand(420, 470)], [0.18, rand(330, 370)]], a: 0.001, d: 0.22, g: 0.32, lp: 2400 });
+    k.nz({ n: 'white', a: 0.001, d: 0.035, g: 0.6, ft: 'highpass', f: 2200 });
+    k.nz({ n: 'pink', dt: 0.02, a: 0.02, d: 0.2, g: 0.35, ft: 'bandpass', f: [[0, 2600], [0.2, 900]], q: 2.5 });
   } },
-  knifeHit: { d: 0.22, v: 3, vol: 0.46, rev: 0.05, pv: 0.07, r(k) {
-    k.thump(0, rand(320, 380), 140, 0.06, 0.8);
-    k.nz({ n: 'white', a: 0.0005, d: 0.03, g: 0.7, ft: 'lowpass', f: 2600 });
-    k.tone({ type: 'sine', f: rand(2100, 2500), a: 0.001, d: 0.08, g: 0.12 });
+  // a bolt striking a demon: wet thud and a short crack
+  boltHit: { d: 0.26, v: 3, vol: 0.5, rev: 0.05, pv: 0.07, r(k) {
+    k.thump(0, rand(240, 290), 90, 0.08, 0.9);
+    k.nz({ n: 'pink', a: 0.001, d: 0.06, g: 0.6, ft: 'bandpass', f: [[0, 1800], [0.06, 500]], q: 1.2 });
+    k.nz({ n: 'white', a: 0.0005, d: 0.02, g: 0.5, ft: 'highpass', f: 3000 });
   } },
 
   // ---------------------------------------------------------- magic signs
@@ -988,7 +993,7 @@ const CAL = {
   step: 1.41, jump: 1.81, land: 0.841, landHeavy: 0.608, climb: 1.27, grab: 1.34, mantle: 1.88, vault: 1.29,
   climbLeap: 1.19, hay: 0.848, leap: 1.48, dodge: 4.8, roll: 1.16, swing: 1.93, swingHeavy: 1.66, hitFlesh: 0.611,
   hitArmor: 0.528, parry: 0.344, block: 0.75, counter: 0.527, hiddenBlade: 1.9, assassinate: 0.861, gloryKill: 0.444,
-  gore: 0.789, knifeThrow: 2.76, knifeHit: 0.845, sigilFire: 0.684, sigilWind: 0.565, sigilShield: 0.525,
+  gore: 0.789, crossbow: 0.653, boltHit: 0.764, sigilFire: 0.684, sigilWind: 0.565, sigilShield: 0.525,
   sigilShieldBreak: 0.431, sigilTrap: 0.788, sigilHex: 0.916, noStamina: 1.4, tonic: 1.43, chestOpen: 1.25,
   pickupHealth: 1.97, pickupArmor: 0.974, pickupKnife: 1.88, pickupRune: 1.86, relic: 1.23, sync: 0.951,
   uiHover: 1.53, uiClick: 1.46, uiBack: 1.76, objective: 0.906, checkpoint: 1.37, impScreech: 1.53,

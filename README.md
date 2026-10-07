@@ -3,7 +3,7 @@
 A third-person action game for the browser that mixes three games:
 
 - **Assassin's Creed**: third-person free-running. Climb any wall, hang from ledges, leap between rooftops, cross beams, dive from viewpoints into hay carts, hide, and assassinate from the shadows. Stealth works through demon view cones, awareness meters, hearing, Ashen Sight (eagle vision), hiding in hay and sneaking.
-- **Witcher 3**: sword combat with fast-attack combos and long lunges, strong attacks (hold for a charged *Rend*), block and timed parry into a counter-attack, dodge and roll with invulnerability frames, lock-on, five magic **Sigils** paid for with stamina, adrenaline (*Fury*), throwing knives and a healing tonic.
+- **Witcher 3**: sword combat with fast-attack combos and long lunges, strong attacks (hold for a charged *Rend*), block and timed parry into a counter-attack, dodge and roll with invulnerability frames, lock-on, five magic **Sigils** paid for with stamina, adrenaline (*Fury*), a hand crossbow and a healing tonic.
 - **Modern Doom**: demons from Hell, wounded demons that stagger and glow, **Glory Kills** that burst into health orbs, burning demons that shed armor, arena fights behind walls of hellfire, and an aggressive, keep-moving loop.
 
 You are the last blade of the Ashen Creed in Vellano, an Italian city in 1499. Hell has torn the sky open above its cathedral. Climb the five viewpoint towers to read the city, close the three **Hell Rifts**, then face **the Cardinal of Ash** in the Piazza del Duomo.
@@ -43,7 +43,7 @@ Every control can be changed in the game (see [Changing controls](#changing-cont
 | Cast Sigil | `Q` | RB |
 | Select Sigil | `1`–`5` / mouse wheel | D-pad left/right |
 | Assassinate / Glory Kill / Interact | `F` | LB |
-| Throwing knife | `G` | D-pad up |
+| Crossbow | `G` | D-pad up |
 | Blood Tonic (heal) | `H` | D-pad down |
 | Lock on target | Middle mouse / `Z` | R3 |
 | Ashen Sight (see demons through walls) | `V` | View / Back |
@@ -79,19 +79,19 @@ Open **Controls** from the title screen or from the pause menu (`Esc`), at any p
 ### Stealth
 - A meter fills above a demon that can see you: **?** means suspicious, **!** means it has spotted you. Sneaking, staying on rooftops and keeping out of view cones slow it down. Sprinting and fighting are loud.
 - Press **F** behind or beside an unaware demon, from a ledge above it, while hanging below it, or from inside a hay cart to **assassinate** it. Brutes survive a ground assassination with heavy damage, but not one from above.
-- Throwing knives kill unaware Thralls and Imps in one hit.
+- A crossbow bolt kills an unaware Thrall or Imp in one hit and does double damage to any other unaware demon. Snipe from the rooftops: the crossbow aims at demons far above or below you.
 
 ### Combat
 - A demon flashes **yellow** before an attack you can parry. Tap block just before the hit to **parry**, which staggers it and triggers an automatic counter. **Red** attacks can't be blocked, so dodge or roll.
 - Parried, knocked-down, dazed or badly wounded demons glow. Press **F** for a **Glory Kill**, which showers **health** orbs.
-- **Burning** demons drop **armor shards**, and assassinated demons drop **knives**.
-- These drops are glowing orbs: green heal you, gold give armor and silver give throwing knives. Walk near one and it flies to you. If that resource is already full, the orb restores stamina instead.
+- **Burning** demons drop **armor shards**, and assassinated demons drop **crossbow bolts**.
+- These drops are glowing orbs: green heal you, gold give armor and silver give crossbow bolts. Walk near one and it flies to you. If that resource is already full, the orb restores stamina instead.
 - Sigils cost 50 stamina each:
   - **Pyre**: a cone of fire.
   - **Gust**: a force blast that knocks lesser demons down.
   - **Aegis**: a ward that absorbs a blow.
-  - **Snare**: a glyph trap that slows demons and drags flying Gazers to the ground.
-  - **Hex**: stuns a demon.
+  - **Snare**: a glyph trap that slows demons. Cast it at a flying Gazer and it opens under the Gazer and drags it to the ground.
+  - **Hex**: stuns a demon. A hexed Gazer sinks within sword reach.
 - Brutes are armored from the front. Burn them, hit them from behind, or bait their charge into a wall to stun them.
 
 ### Difficulty
@@ -112,7 +112,7 @@ Hard is the game's original balance. Saves made before difficulty levels existed
 Settings work from the keyboard or a gamepad: up and down pick a setting, left and right change it.
 
 ### Progression
-Ashen Runes come from chests, viewpoints, closed rifts and every third hidden Creed Relic. Spend them in **The Creed** (pause menu) on health, sword damage, stamina, Sigil power, more knives, an extra tonic and stealth.
+Ashen Runes come from chests, viewpoints, closed rifts and every third hidden Creed Relic. Spend them in **The Creed** (pause menu) on health, sword damage, stamina, Sigil power, more crossbow bolts, an extra tonic and stealth.
 
 ## The demons
 
@@ -121,7 +121,7 @@ Ashen Runes come from chests, viewpoints, closed rifts and every third hidden Cr
 | Thrall | Possessed townsfolk that shamble in patrols. Weak, but they come in groups. |
 | Imp | Climbs walls to reach you on rooftops and throws fireballs. Parry a fireball to throw it back. |
 | Hellhound | Fast. Its pounce knocks you down, so parry or dodge it. |
-| Gazer | Floating eye that fires homing orb volleys and a sweeping beam. Snare drags it down where it's vulnerable. |
+| Gazer | Floating eye that fires homing orb volleys and a sweeping beam, out of sword reach. Shoot it down with the crossbow, or cast Snare or Hex at it, then finish it on the ground. |
 | Brute | Armored. Its punches and ground slam hurt, and its charge stuns it if it hits a wall. |
 | The Cardinal of Ash | The final boss. Has three phases: sweeps, stomp shockwaves (jump them), fire breath, a meteor rain, and summoned minions. When he kneels exhausted, press **F** to strike his heart. |
 
@@ -131,12 +131,12 @@ Ashen Runes come from chests, viewpoints, closed rifts and every third hidden Cr
 - **Refresh-rate independent**: game logic runs on a fixed 60 Hz timestep and rendering interpolates between steps. Input events carry timestamps and are applied on the step in which they happened, hit-stop and slow motion are timed in real time inside the frame, and all smoothing is exponential in real time. A scripted 20-second fight simulates bit-identically at 30, 60, 144 and 240 Hz and with uneven frame pacing.
 - **Procedural**:
   - The city: street grid, buildings with ledges and gable roofs, enterable houses with stairs and window openings, the cathedral, towers, beams and props.
-  - Animation: every character is animated procedurally (gait, climbing, combat clips, recoils, death) on a small shared skeleton.
+  - Animation: every character is animated procedurally (gait, climbing, combat clips, recoils, death) on a small shared skeleton. Feet are planted with two-bone IK: a foot stays fixed on the ground while it carries weight, then swings to a foothold predicted from the character's velocity, so nobody glides. Footholds follow stairs and slopes, standing characters step their feet around when they turn, and the stride length matches each character's legs.
   - Audio: Web Audio SFX and adaptive music (dark ambient, stealth tension, Doom-style metal in combat, a boss track).
 - **Generated assets ([Higgsfield](https://higgsfield.ai/))**:
   - 8 seamless material textures, a 360° hell-sky panorama (two halves) and the title key art. Normal maps, seamless tiling and the glowing-lava emissive map are derived locally by `tools/process_textures.py`.
-  - 3D characters: the assassin, the five demon types and the Cardinal of Ash. Each started as a concept image (`gpt_image_2_5`), was turned into a textured mesh (`sam_3_3d`), then `tools/convert_character.mjs` rigged it for the game's skeletons and packed it into a small binary. `tools/process_character_textures.py` makes the textures and the glow maps (molten cracks, burning eyes). The old primitive models remain in the code as a fallback.
-  - Cost: about 14 Higgsfield credits in total: 3.5 for the textures, sky and title art (11 images), and 10.5 for the characters (7 images at 0.5 and 7 image-to-3D conversions at 1).
+  - 3D characters: the assassin, the five demon types and the Cardinal of Ash. Each started as a concept image (`gpt_image_2_5`), was turned into a textured mesh (`sam_3_3d`), then `tools/convert_character.mjs` rigged it for the game's skeletons and packed it into a small binary. `tools/process_character_textures.py` makes the textures, the glow maps (molten cracks, burning eyes) and a soft light on the assassin's face so it stays readable under his hood. The old primitive models remain in the code as a fallback.
+  - Cost: about 16 Higgsfield credits in total: 3.5 for the textures, sky and title art (11 images), and 12.5 for the characters (9 images at 0.5 and 8 image-to-3D conversions at 1, including a second assassin with his face visible).
 
 ### Project layout
 

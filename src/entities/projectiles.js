@@ -6,10 +6,24 @@ import { sightFilter } from '../world/collision.js';
 
 const _v = new THREE.Vector3();
 const geoSphere = new THREE.SphereGeometry(1, 12, 8);
-const geoKnife = (() => {
-  const g = new THREE.BoxGeometry(0.03, 0.01, 0.32);
-  g.translate(0, 0, 0.08);
-  return g;
+// crossbow bolt: shaft along +Z (the tip at the front), steel head, fletching
+const geoBolt = (() => {
+  const shaft = new THREE.CylinderGeometry(0.009, 0.009, 0.38, 6);
+  shaft.rotateX(Math.PI / 2);
+  const head = new THREE.ConeGeometry(0.02, 0.07, 6);
+  head.rotateX(Math.PI / 2);
+  head.translate(0, 0, 0.22);
+  const fin1 = new THREE.BoxGeometry(0.05, 0.002, 0.07);
+  fin1.translate(0, 0, -0.16);
+  const fin2 = new THREE.BoxGeometry(0.002, 0.05, 0.07);
+  fin2.translate(0, 0, -0.16);
+  const parts = [shaft, head, fin1, fin2].map((g) => g.toNonIndexed());
+  const pos = [], nrm = [];
+  for (const g of parts) { pos.push(...g.attributes.position.array); nrm.push(...g.attributes.normal.array); }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  return out;
 })();
 
 function distPointSegment(px, py, pz, ax, ay, az, bx, by, bz) {
@@ -28,7 +42,8 @@ export class Projectiles {
     this.hazards = []; // beams, breath, meteors, shockwaves
     this.matFire = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 1.3, 0.35), toneMapped: false });
     this.matOrb = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 0.4, 1.6), toneMapped: false });
-    this.matKnife = new THREE.MeshStandardMaterial({ color: 0xd0d0d8, metalness: 0.9, roughness: 0.3 });
+    this.matBolt = new THREE.MeshStandardMaterial({ color: 0x9a8a6a, metalness: 0.35, roughness: 0.45, emissive: new THREE.Color(0.5, 0.32, 0.12), emissiveIntensity: 0.6 });
+    this.stuck = []; // bolts left in walls
     this.matBeam = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.5, 0.2), transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
     this.matWarn = new THREE.MeshBasicMaterial({ color: 0xff2000, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
     this.matRing = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.9, 0.2), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
@@ -70,13 +85,14 @@ export class Projectiles {
     return this.spawn({ kind: 'orb', pos, vel, dmg, owner, radius: 0.28, homing: 1.8, hostile: true, mesh, parryable: true, life: 5 });
   }
 
-  knife(from, dir, dmg, target = null) {
+  /** Crossbow bolt; with a target it steers onto it (aim assist). */
+  bolt(from, dir, dmg, target = null) {
     const pos = new THREE.Vector3(from.x, from.y, from.z);
-    const vel = dir.clone().normalize().multiplyScalar(34);
-    const mesh = new THREE.Mesh(geoKnife, this.matKnife);
+    const vel = dir.clone().normalize().multiplyScalar(62);
+    const mesh = new THREE.Mesh(geoBolt, this.matBolt);
     mesh.castShadow = false;
     this.scene.add(mesh);
-    return this.spawn({ kind: 'knife', pos, vel, dmg, owner: 'player', radius: 0.12, hostile: false, mesh, gravity: 4, life: 2, target });
+    return this.spawn({ kind: 'bolt', pos, vel, dmg, owner: 'player', radius: 0.14, hostile: false, mesh, gravity: 1.2, life: 1.6, target, seek: 9 });
   }
 
   beam(owner, a) {
@@ -144,7 +160,12 @@ export class Projectiles {
         const want = _v.set(o.pos.x - p.pos.x, o.pos.y + 1 - p.pos.y, o.pos.z - p.pos.z).normalize().multiplyScalar(sp);
         p.vel.lerp(want, Math.min(1, 4 * dt)).setLength(sp);
       }
-      if (p.gravity) p.vel.y -= p.gravity * dt;
+      if (p.seek && p.target && !p.target.dead) {
+        const t = p.target, sp = p.vel.length();
+        const ty = t.pos.y + (t.def.flies ? 0 : t.def.height * (t.def.modelScale || 1) * 0.62);
+        const want = _v.set(t.pos.x - p.pos.x, ty - p.pos.y, t.pos.z - p.pos.z).normalize().multiplyScalar(sp);
+        p.vel.lerp(want, Math.min(1, p.seek * dt)).setLength(sp);
+      } else if (p.gravity) p.vel.y -= p.gravity * dt;
       const step = p.vel.length() * dt;
       const dir = _v.copy(p.vel).normalize();
       // world hit
@@ -166,21 +187,30 @@ export class Projectiles {
           continue;
         }
       }
-      // friendly -> demons
+      // friendly -> demons (swept along this tick's path, so fast bolts can't skip a body)
       if (!p.hostile && !p.dead) {
-        for (const e of game.director.enemies) {
-          if (e.dead || p.dead || (p.reflected && e !== p.owner && Math.random() < 0)) continue;
-          const ey0 = e.pos.y + (e.def.flies ? -0.6 : 0), ey1 = e.pos.y + (e.def.flies ? 0.6 : e.def.height);
-          const d = distPointSegment(p.pos.x, p.pos.y, p.pos.z, e.pos.x, ey0, e.pos.z, e.pos.x, ey1, e.pos.z);
-          if (d < p.radius + e.radius) {
-            this.hitEnemy(p, e);
-            break;
+        const n = Math.max(1, Math.ceil(step / 0.3));
+        for (let k = 1; k <= n && !p.dead; k++) {
+          const f = k / n;
+          const sx = p.prev.x + (p.pos.x - p.prev.x) * f, sy = p.prev.y + (p.pos.y - p.prev.y) * f, sz = p.prev.z + (p.pos.z - p.prev.z) * f;
+          for (const e of game.director.enemies) {
+            if (e.dead || e.state === 'spawn') continue;
+            const h = e.def.height * (e.def.modelScale || 1);
+            const ey0 = e.pos.y + (e.def.flies ? -0.6 : 0), ey1 = e.pos.y + (e.def.flies ? 0.6 : h);
+            const d = distPointSegment(sx, sy, sz, e.pos.x, ey0, e.pos.z, e.pos.x, ey1, e.pos.z);
+            if (d < p.radius + e.radius) {
+              p.pos.set(sx, sy, sz);
+              this.hitEnemy(p, e);
+              break;
+            }
           }
         }
       }
       if (p.life <= 0 && !p.dead) this.impact(p, null, true);
     }
     for (const p of this.list) if (p.dead && p.mesh) { this.scene.remove(p.mesh); p.mesh = null; }
+    for (const b of this.stuck) if ((b.t -= dt) <= 0) this.scene.remove(b.mesh);
+    if (this.stuck.length && this.stuck[0].t <= 0) this.stuck = this.stuck.filter((b) => b.t > 0);
     this.list = this.list.filter((p) => !p.dead);
     this.updateHazards(dt);
   }
@@ -198,14 +228,21 @@ export class Projectiles {
 
   hitEnemy(p, e) {
     const dx = p.vel.x, dz = p.vel.z, l = Math.hypot(dx, dz) || 1;
-    if (p.kind === 'knife') {
-      // knives kill unaware lesser demons outright (AC style)
-      const instakill = !e.alerted && (e.type === 'thrall' || e.type === 'imp');
-      const dmg = instakill ? e.hp + 1 : p.dmg;
-      e.takeHit(dmg, { type: 'pierce', poise: 18, dirX: dx / l, dirZ: dz / l, source: 'player', knockback: 1, killKind: 'knife', stagger: e.type === 'imp' || e.type === 'thrall' });
-      this.game.fx?.blood(p.pos.x, p.pos.y, p.pos.z, dx / l, dz / l, 10, 0.7);
-      this.game.audio?.play('knifeHit', { pos: p.pos, volume: 0.9 });
-      this.game.events.emit('knifeHit', e);
+    if (p.kind === 'bolt') {
+      // unaware lesser demons die outright (AC style); unaware others take double
+      const unaware = !e.alerted;
+      const instakill = unaware && (e.type === 'thrall' || e.type === 'imp');
+      const dmg = instakill ? e.hp + 1 : p.dmg * (unaware ? 2 : 1);
+      e.takeHit(dmg, { type: 'pierce', poise: 25, dirX: dx / l, dirZ: dz / l, source: 'player', knockback: 1, killKind: 'bolt', stagger: e.type === 'imp' || e.type === 'thrall' });
+      // a bolt knocks a Gazer out of the air: it crawls on the ground, open to the sword
+      if (!e.dead && e.def.flies) {
+        if (e.groundedT <= 0) this.game.fx?.magicSwirl(e.pos.x, e.pos.y, e.pos.z, [2.4, 1.6, 0.6], 18, 0.6);
+        e.groundedT = Math.max(e.groundedT, 6);
+        e.stagger?.(0.7);
+      }
+      this.game.fx?.blood(p.pos.x, p.pos.y, p.pos.z, dx / l, dz / l, 12, 0.8);
+      this.game.audio?.play('boltHit', { pos: p.pos, volume: 0.9 });
+      this.game.events.emit('boltHit', e);
       p.dead = true;
       return;
     }
@@ -234,9 +271,19 @@ export class Projectiles {
       }
     } else if (p.kind === 'orb') {
       fx?.sparks(p.pos.x, p.pos.y, p.pos.z, 14, [1, 0.3, 0.9], 5);
-    } else if (p.kind === 'knife') {
+    } else if (p.kind === 'bolt') {
       fx?.sparks(p.pos.x, p.pos.y, p.pos.z, 6, [1, 0.9, 0.7], 3);
-      if (!fizzle) this.game.audio?.play('knifeHit', { pos: p.pos, volume: 0.5, pitch: 1.4 });
+      if (!fizzle) {
+        this.game.audio?.play('boltHit', { pos: p.pos, volume: 0.5, pitch: 1.4 });
+        // leave it stuck in the wall for a while
+        if (what === null && p.mesh) {
+          p.mesh.position.copy(p.pos);
+          p.mesh.lookAt(p.pos.x + p.vel.x, p.pos.y + p.vel.y, p.pos.z + p.vel.z);
+          this.stuck.push({ mesh: p.mesh, t: 6 });
+          if (this.stuck.length > 12) this.scene.remove(this.stuck.shift().mesh);
+          p.mesh = null;
+        }
+      }
     }
   }
 
@@ -344,7 +391,7 @@ export class Projectiles {
     for (const p of this.list) {
       if (!p.mesh) continue;
       p.mesh.position.lerpVectors(p.prev, p.pos, alpha);
-      if (p.kind === 'knife') {
+      if (p.kind === 'bolt') {
         p.mesh.lookAt(p.mesh.position.x + p.vel.x, p.mesh.position.y + p.vel.y, p.mesh.position.z + p.vel.z);
         continue;
       }
@@ -359,6 +406,8 @@ export class Projectiles {
   clear() {
     for (const p of this.list) if (p.mesh) this.scene.remove(p.mesh);
     this.list = [];
+    for (const b of this.stuck) this.scene.remove(b.mesh);
+    this.stuck = [];
     for (const h of this.hazards) h.done = true;
     this.updateHazards(0);
   }

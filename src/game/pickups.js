@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { rand, clamp } from '../core/math.js';
 
 // Doom-style resource orbs: health (glory kills), armor shards (burning
-// kills), throwing knives (assassinations). They pop out, bounce, then get
+// kills), crossbow bolts (assassinations). They pop out, bounce, then get
 // magnetised to the player. An orb for a resource that's already full
 // restores stamina instead, so every orb is worth picking up.
 
@@ -11,7 +11,7 @@ const STAMINA_FROM_ORB = 15;
 const KINDS = {
   health: { color: new THREE.Color(0.35, 2.6, 0.5), size: 0.16, value: 10 },
   armor: { color: new THREE.Color(2.6, 1.9, 0.3), size: 0.13, value: 6 },
-  knife: { color: new THREE.Color(1.6, 1.7, 2.2), size: 0.12, value: 1 },
+  bolt: { color: new THREE.Color(1.6, 1.7, 2.2), size: 0.12, value: 2 },
 };
 
 export class Pickups {
@@ -80,7 +80,7 @@ export class Pickups {
     const p = this.game.player;
     if (kind === 'health') return p.hp < p.maxHp;
     if (kind === 'armor') return p.armor < p.maxArmor;
-    if (kind === 'knife') return p.knives < p.maxKnives;
+    if (kind === 'bolt') return p.bolts < p.maxBolts;
     return true;
   }
 
@@ -95,10 +95,10 @@ export class Pickups {
       game.audio?.play('pickupRune', { volume: 0.3, pitch: rand(1.3, 1.5) });
     } else if (o.kind === 'health') { p.heal(o.value); game.audio?.play('pickupHealth', { volume: 0.5, pitch: rand(0.95, 1.1) }); }
     else if (o.kind === 'armor') { p.armor = Math.min(p.maxArmor, p.armor + o.value); game.audio?.play('pickupArmor', { volume: 0.5, pitch: rand(0.95, 1.1) }); }
-    else if (o.kind === 'knife') { p.knives = Math.min(p.maxKnives, p.knives + o.value); game.audio?.play('pickupKnife', { volume: 0.6 }); }
+    else if (o.kind === 'bolt') { p.bolts = Math.min(p.maxBolts, p.bolts + o.value); game.audio?.play('pickupKnife', { volume: 0.6 }); }
     if (!game.orbHinted) {
       game.orbHinted = true;
-      game.ui?.hint('<b>Orbs:</b> green heal you, gold give armor and silver give throwing knives. Walk near one to collect it. If you are already full, it restores stamina instead.', 9);
+      game.ui?.hint('<b>Orbs:</b> green heal you, gold give armor and silver give crossbow bolts. Walk near one to collect it. If you are already full, it restores stamina instead.', 9);
     }
     game.events.emit('pickup', full ? 'stamina' : o.kind, full ? STAMINA_FROM_ORB : o.value);
   }

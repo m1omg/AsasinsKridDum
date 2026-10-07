@@ -7,12 +7,16 @@ import { sampleClip, overlayPose } from './rig.js';
 import { clamp, damp, dampFactor, smoothstep } from '../core/math.js';
 import { LAYER_XRAY } from '../render/renderer.js';
 import { addRim } from '../render/materials.js';
+import { humanoidFeet, houndFeet, gaitShape } from './footIK.js';
 
 // Visual side of a demon: instanced model, per-instance materials for glow
 // effects (telegraph, burning, glory stagger, dissolve) and procedural anims.
 
 const templates = {};
 const TMPV = new THREE.Vector3();
+// enemy states in which the feet are planted on the ground by IK
+const FOOT_IK = new Set(['patrol', 'suspicious', 'search', 'screech', 'combat', 'attack', 'stagger', 'dazed', 'hit']);
+
 const C_YELLOW = new THREE.Color(1.0, 0.75, 0.15);
 const C_RED = new THREE.Color(1.0, 0.08, 0.02);
 const C_BLUE = new THREE.Color(0.2, 0.55, 1.0);
@@ -47,6 +51,13 @@ export class EnemyView {
     this.mesh.traverse((o) => { if (o.isBone) this.bones[o.name] = o; });
     this.rest = {};
     for (const n in this.bones) this.rest[n] = this.bones[n].position.clone();
+    // feet planted on the ground while walking (no gliding)
+    const skel = enemy.def.skel, rig = { bones: this.bones, rest: this.rest };
+    this.feet = skel === 'humanoid' && this.bones.thighL ? humanoidFeet(rig, enemy.def.heavy ? 1.2 : 1)
+      : skel === 'hound' && this.bones.flU ? houndFeet(rig) : null;
+    this._g = { y: 0, c: null };
+    this.ground = (x, z, maxY) => game.collision.groundAt(x, z, 0.12, maxY, this._g).y;
+    this.dCam = 0;
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = true;
     this.mesh.layers.enable(LAYER_XRAY);
@@ -93,15 +104,20 @@ export class EnemyView {
     this.bound.center.copy(m.position);
     this.bound.center.y += e.def.height * 0.5;
     const dCam = m.position.distanceTo(camPos);
+    this.dCam = dCam;
     const inView = frustum.intersectsSphere(this.bound) && dCam < 120;
     m.visible = inView && !e.removed;
     // shadows only near the camera (the shadow map covers ~50 m anyway)
     m.castShadow = dCam < 38 || e.def.boss;
-    if (!m.visible) return;
+    if (!m.visible) { this.skipped = 0; return; }
     this.time += dt;
-    if (dCam > 70 && (this.visibleFrames++ % 3) !== 0) return; // far: animate at 1/3 rate
-    this.animate(dt, alpha);
-    this.effects(dt);
+    // far away: pose every third frame, covering the time of the skipped ones
+    this.skipped = (this.skipped || 0) + dt;
+    if (dCam > 70 && (this.visibleFrames++ % 3) !== 0) return;
+    const step = this.skipped;
+    this.skipped = 0;
+    this.animate(step, alpha);
+    this.effects(step);
   }
 
   animate(dt, alpha) {
@@ -111,10 +127,12 @@ export class EnemyView {
     for (const k in T) delete T[k];
     const sp = e.speed2d || 0;
     let rootRx = 0, rootRz = 0, rootY = 0;
-    let rate = 12;
+    let rate = 18;
+    // stride matched to the legs, so planted feet keep pace with the ground
+    const gait = this.feet ? gaitShape(sp, this.feet.legLen * this.baseScale) : null;
     if (skel === 'humanoid') {
       const run = e.def.heavy ? clamp(sp / 3, 0, 1) * 0.7 : sp < 1.6 ? sp / 1.6 * 0.3 : 0.3 + clamp((sp - 1.6) / 3.5, 0, 1) * 1.0;
-      const stride = (e.def.heavy ? 1.9 : 1.2) * (e.def.height / 1.75) * (run > 0.5 ? 1.6 : 1);
+      const stride = gait ? gait.stride : (e.def.heavy ? 1.9 : 1.2) * (e.def.height / 1.75) * (run > 0.5 ? 1.6 : 1);
       this.phase += (sp * dt / stride) * Math.PI * 2;
       if (e.state === 'climb') climbPose(T, this.phase += dt * 9, 0, 0);
       else if (e.vy !== 0 && e.state !== 'attack') airPose(T, e.vy, this.time);
@@ -122,7 +140,7 @@ export class EnemyView {
       else gaitPose(T, this.phase, run);
       this.styleHumanoid(T, sp);
     } else if (skel === 'hound') {
-      this.houndPose(T, sp, dt);
+      this.houndPose(T, sp, dt, gait);
     } else if (skel === 'gazer') {
       this.gazerPose(T, dt);
     }
@@ -174,6 +192,7 @@ export class EnemyView {
       if (q) b[n].rotation.set(q[0], q[1], q[2]);
     }
     if (b.hips) b.hips.position.y = this.rest.hips.y + this.bob * (e.def.height / 1.75);
+    if (skel === 'hound' && b.body) b.body.position.y = this.rest.body.y + this.bob;
     if (b.root) {
       b.root.rotation.set(rootRx, 0, rootRz);
       b.root.position.y = rootY - this.sink;
@@ -182,6 +201,15 @@ export class EnemyView {
         const c = e.def.height * 0.12;
         b.root.position.z = -Math.sin(rootRx) * c;
       } else b.root.position.z = 0;
+    }
+    // plant the feet (near the camera, on the ground, in states that stand or walk)
+    if (this.feet) {
+      const standing = FOOT_IK.has(e.state) && !(e.def.boss && e.state === 'dazed');
+      this.feet.update(dt, {
+        mesh: this.mesh, yaw: this.mesh.rotation.y, vel: e.vel, speed: sp, phase: this.phase, gait,
+        want: standing && e.vy === 0 && this.dCam < 45 ? 1 : 0,
+        ground: this.ground, narrow: false,
+      });
     }
   }
 
@@ -213,10 +241,10 @@ export class EnemyView {
     void sp;
   }
 
-  houndPose(T, sp, dt) {
+  houndPose(T, sp, dt, gait) {
     const e = this.enemy;
     const run = clamp(sp / 8, 0, 1);
-    this.phase += dt * (sp > 0.2 ? 3 + sp * 1.4 : 0);
+    this.phase += gait ? (sp * dt / gait.stride) * Math.PI * 2 : dt * (sp > 0.2 ? 3 + sp * 1.4 : 0);
     const ph = this.phase;
     const s = Math.sin(ph), c = Math.cos(ph);
     const A = 0.25 + run * 0.6;
