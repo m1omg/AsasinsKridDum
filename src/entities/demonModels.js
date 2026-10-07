@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RigBuilder, G, mat, limb } from './rig.js';
 import { humanoidBones } from './humanoid.js';
+import { hasGenerated, buildGenerated } from './genModels.js';
 
 // Procedural demon models. Humanoid demons share the humanoid skeleton (so
 // they reuse its pose conventions); hounds and gazers have their own rigs.
@@ -275,4 +276,17 @@ export function buildGazer(materials) {
   return r.build(materials, MATS);
 }
 
-export const BUILDERS = { thrall: buildThrall, imp: buildImp, brute: buildBrute, boss: buildBoss, hound: buildHound, gazer: buildGazer };
+const PROCEDURAL = { thrall: buildThrall, imp: buildImp, brute: buildBrute, boss: buildBoss, hound: buildHound, gazer: buildGazer };
+// look of each Higgsfield-generated demon (their bones match the procedural skeletons)
+const GENERATED_LOOK = {
+  thrall: { roughness: 0.82 },
+  imp: { roughness: 0.6 },
+  brute: { roughness: 0.55, metalness: 0.25, glow: 2.6 },
+  boss: { roughness: 0.7, glow: 3 },
+  hound: { roughness: 0.6, glow: 2.6 },
+  gazer: { roughness: 0.5, glow: 2.4 },
+};
+export const BUILDERS = Object.fromEntries(Object.entries(PROCEDURAL).map(([type, build]) => [
+  type,
+  (materials) => (hasGenerated(type) ? buildGenerated(type, { rim: 0xff5a1a, rimStrength: 0.4, ...GENERATED_LOOK[type] }) : build(materials)),
+]));

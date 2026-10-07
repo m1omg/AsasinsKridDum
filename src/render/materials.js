@@ -87,16 +87,33 @@ export function radialAlphaTexture(size = 256, inner = 0.55) {
  * the dark, smoky city (warm for demons, cool for the assassin).
  */
 export function addRim(mat, color, strength = 0.6, power = 3.0) {
+  // optional glow texture (mat.glowMap, e.g. lava cracks) is added to the emissive term.
+  // mat.flash (a colour, black = off) is a flash effect that keeps the texture
+  // readable: it brightens the surface by its own colour and adds a hot outline.
   const rimColor = new THREE.Color(color);
+  const glow = mat.glowMap || null;
+  const glowStrength = mat.glowStrength ?? 2;
+  const flash = { value: new THREE.Color(0, 0, 0) };
+  mat.flash = flash.value;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uRimColor = { value: rimColor };
     shader.uniforms.uRimStrength = { value: strength };
+    shader.uniforms.uFlash = flash;
+    let decl = 'uniform vec3 uRimColor;\nuniform float uRimStrength;\nuniform vec3 uFlash;';
+    let glowCode = '';
+    if (glow) {
+      shader.uniforms.uGlowMap = { value: glow };
+      shader.uniforms.uGlowStrength = { value: glowStrength };
+      decl += '\nuniform sampler2D uGlowMap;\nuniform float uGlowStrength;';
+      glowCode = 'totalEmissiveRadiance += texture2D(uGlowMap, vMapUv).rgb * uGlowStrength;';
+    }
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uRimColor;\nuniform float uRimStrength;')
+      .replace('#include <common>', '#include <common>\n' + decl)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-      { float rimF = 1.0 - abs(dot(normal, normalize(vViewPosition))); totalEmissiveRadiance += uRimColor * uRimStrength * pow(rimF, ${power.toFixed(1)}); }`);
+      { float rimF = 1.0 - abs(dot(normal, normalize(vViewPosition))); totalEmissiveRadiance += uRimColor * uRimStrength * pow(rimF, ${power.toFixed(1)}); ${glowCode}
+        totalEmissiveRadiance += uFlash * (0.15 + 1.6 * diffuseColor.rgb + 1.8 * pow(rimF, 1.5)); }`);
   };
-  mat.customProgramCacheKey = () => 'rim' + power.toFixed(1);
+  mat.customProgramCacheKey = () => 'rim' + power.toFixed(1) + (glow ? 'g' : '');
   mat.needsUpdate = true;
   return mat;
 }

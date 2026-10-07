@@ -129,11 +129,14 @@ Ashen Runes come from chests, viewpoints, closed rifts and every third hidden Cr
 
 - **Engine**: [Three.js](https://threejs.org/) with custom systems: an AABB/slope collision world with a spatial hash, a kinematic character controller, a nav grid with A* and a flow field, procedural animation, and particles. Post-processing adds bloom, color grading, and the Ashen Sight x-ray pass.
 - **Refresh-rate independent**: game logic runs on a fixed 60 Hz timestep and rendering interpolates between steps. Input events carry timestamps and are applied on the step in which they happened, hit-stop and slow motion are timed in real time inside the frame, and all smoothing is exponential in real time. A scripted 20-second fight simulates bit-identically at 30, 60, 144 and 240 Hz and with uneven frame pacing.
-- **Procedural everything else**:
+- **Procedural**:
   - The city: street grid, buildings with ledges and gable roofs, enterable houses with stairs and window openings, the cathedral, towers, beams and props.
-  - Characters and demons: primitives skinned to bones in a single mesh each, with procedural animation.
+  - Animation: every character is animated procedurally (gait, climbing, combat clips, recoils, death) on a small shared skeleton.
   - Audio: Web Audio SFX and adaptive music (dark ambient, stealth tension, Doom-style metal in combat, a boss track).
-- **Generated assets ([Higgsfield](https://higgsfield.ai/))**: 8 seamless material textures, a 360° hell-sky panorama (two halves) and the title key art. Normal maps, seamless tiling and the glowing-lava emissive map are derived locally by `tools/process_textures.py`. Total cost was about 3.5 Higgsfield credits: 11 images at 0.25–0.5 credits each with the `gpt_image_2_5` model.
+- **Generated assets ([Higgsfield](https://higgsfield.ai/))**:
+  - 8 seamless material textures, a 360° hell-sky panorama (two halves) and the title key art. Normal maps, seamless tiling and the glowing-lava emissive map are derived locally by `tools/process_textures.py`.
+  - 3D characters: the assassin, the five demon types and the Cardinal of Ash. Each started as a concept image (`gpt_image_2_5`), was turned into a textured mesh (`sam_3_3d`), then `tools/convert_character.mjs` rigged it for the game's skeletons and packed it into a small binary. `tools/process_character_textures.py` makes the textures and the glow maps (molten cracks, burning eyes). The old primitive models remain in the code as a fallback.
+  - Cost: about 14 Higgsfield credits in total: 3.5 for the textures, sky and title art (11 images), and 10.5 for the characters (7 images at 0.5 and 7 image-to-3D conversions at 1).
 
 ### Project layout
 
@@ -146,7 +149,8 @@ src/world/              collision world, procedural city, navigation grid
 src/entities/           player controller + combat, rigs/models/animation, demons, projectiles
 src/game/               game state, director (spawns, arenas, boss), camera, UI, pickups, interactions
 assets/textures/        processed Higgsfield textures (webp)
-tools/                  texture processing script
+assets/models/          generated characters: rigged mesh (.bin), texture and glow map (webp)
+tools/                  texture processing and character conversion scripts
 ```
 
 ### Graphics settings

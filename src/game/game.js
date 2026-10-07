@@ -14,6 +14,7 @@ import { ThirdPersonCamera } from './camera.js';
 import { Player } from '../entities/player.js';
 import { installCombat, PLAYER_CLIPS } from '../entities/playerCombat.js';
 import { PlayerView } from '../entities/playerView.js';
+import { preloadGenerated } from '../entities/genModels.js';
 import { CLIPS } from '../entities/clips.js';
 import { Director } from './director.js';
 import { Pickups } from './pickups.js';
@@ -153,6 +154,8 @@ export class Game {
     this.ui.setLoading(0.05, 'Gathering ash and brimstone…');
     this.tex = await loadTextures(this.renderer.gl, (p) => this.ui.setLoading(0.05 + p * 0.45));
     this.materials = createMaterials(this.tex);
+    this.ui.setLoading(0.5, 'Summoning the damned…');
+    await preloadGenerated(this.renderer.gl);
     this.ui.setLoading(0.55, 'Raising the city of Vellano…');
     await new Promise((r) => setTimeout(r, 30));
     this.city = new City({ scene: this.scene, collision: this.collision, materials: this.materials }).build();

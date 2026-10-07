@@ -6,6 +6,8 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
 export default defineConfig({
   base: './',
   plugins: [viteSingleFile({ removeViteModuleLoader: true })],
+  // generated character meshes (assets/models/*.bin) are inlined as data URLs
+  assetsInclude: ['**/*.bin'],
   build: {
     target: 'es2020',
     assetsInlineLimit: 100_000_000,

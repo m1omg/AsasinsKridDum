@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RigBuilder, G, mat, limb, ZERO } from './rig.js';
+import { hasGenerated, buildGenerated } from './genModels.js';
 import { lerp, clamp } from '../core/math.js';
 
 // ---------------------------------------------------------------- skeleton
@@ -65,6 +66,23 @@ const STEEL = [0.78, 0.78, 0.8];
 const SKIN = [0.42, 0.3, 0.24];
 
 export function buildAssassin(materials) {
+  // the Higgsfield-generated assassin when its data is bundled, else the procedural one
+  if (hasGenerated('hero')) {
+    const rig = buildGenerated('hero', { roughness: 0.82, rim: 0x8aa6d8, rimStrength: 0.28 });
+    // scabbard across the back (the generated mesh has none)
+    const d = rig.dims;
+    const dir = new THREE.Vector3(0.42, -0.9, -0.06).normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+    const top = new THREE.Vector3(-0.17, 1.6 * d.height / 1.8, d.backZ - 0.04);
+    const scab = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.03, 0.9), materials.charLeather);
+    scab.geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Array(scab.geometry.attributes.position.count * 3).fill(0.22), 3));
+    scab.quaternion.copy(q);
+    scab.position.copy(top).addScaledVector(dir, 0.56).sub(rig.rest.chest).sub(rig.rest.spine).sub(rig.rest.hips);
+    scab.castShadow = true;
+    rig.bones.chest.add(scab);
+    d.swordBack = top.clone().addScaledVector(dir, 0.06).sub(rig.rest.chest).sub(rig.rest.spine).sub(rig.rest.hips);
+    return finishAssassin(rig, d);
+  }
   const { bones, dims: d } = humanoidBones({ tails: true });
   const r = new RigBuilder(bones);
   const { hipY, shY, shX, hipX, kneeY } = d;
@@ -145,7 +163,11 @@ export function buildAssassin(materials) {
   }
 
   const rig = r.build(materials, CHAR_MATS);
+  return finishAssassin(rig, d);
+}
 
+/** Sword and hidden blade, shared by the procedural and generated assassins. */
+function finishAssassin(rig, d) {
   // ---- sword (separate mesh: re-parented between hand and hip)
   const sword = new THREE.Group();
   const sm = new THREE.MeshStandardMaterial({ color: 0xa8acb4, metalness: 0.8, roughness: 0.42, emissive: new THREE.Color(0xff3a10), emissiveIntensity: 0 });
@@ -191,7 +213,8 @@ export function placeSword(model, drawn) {
     bones.chest.add(sword);
     const dir = new THREE.Vector3(0.42, -0.9, -0.06).normalize();
     sword.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
-    sword.position.set(-0.17, 1.6 - model.dims.hipY - 0.33, -0.2).addScaledVector(dir, 0.06);
+    if (model.dims.swordBack) sword.position.copy(model.dims.swordBack);
+    else sword.position.set(-0.17, 1.6 - model.dims.hipY - 0.33, -0.2).addScaledVector(dir, 0.06);
   }
 }
 

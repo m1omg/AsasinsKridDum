@@ -34,7 +34,8 @@ export class EnemyView {
     this.mesh = cloneSkinned(tpl.mesh);
     // per-instance materials so glow effects don't leak between demons
     const src = Array.isArray(this.mesh.material) ? this.mesh.material : [this.mesh.material];
-    this.mats = src.map((m) => m.clone());
+    // (glow maps are a custom property, so carry them over to the copies)
+    this.mats = src.map((m) => { const c = m.clone(); c.glowMap = m.glowMap; c.glowStrength = m.glowStrength; return c; });
     this.mesh.material = this.mats.length === 1 ? this.mats[0] : this.mats;
     this.litMats = this.mats.filter((m) => m.isMeshStandardMaterial);
     // cloned materials lose shader hooks: give every demon a hot rim light
@@ -290,8 +291,8 @@ export class EnemyView {
       col = C_FIRE; inten = 0.5 + 0.4 * Math.sin(t * 17) * Math.sin(t * 7);
     }
     for (const m of this.litMats) {
-      if (col) { m.emissive.copy(col); m.emissiveIntensity = inten; }
-      else if (m.emissiveIntensity !== 0) m.emissiveIntensity = 0;
+      if (col) m.flash.copy(col).multiplyScalar(inten);
+      else m.flash.setRGB(0, 0, 0);
     }
     if (this.glowMat) {
       const base = e.state === 'attack' && e.phaseName === 'windup' ? 1.6 : e.alerted ? 1.25 : 1;
