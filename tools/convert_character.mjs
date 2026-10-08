@@ -1,4 +1,4 @@
-// Convert a generated character GLB (Higgsfield image -> SAM 3D mesh) into the
+// Convert a generated character GLB (Higgsfield image -> SAM 3D or Tripo mesh) into the
 // game's compact skinned format, rigged for the game's own skeletons so the
 // procedural animations drive it unchanged.
 //
@@ -12,7 +12,9 @@
 // Needs (not part of the game build): npm i --no-save @gltf-transform/core @gltf-transform/extensions
 //
 // Commands used for the shipped models:
-//   hero humanoid 1.8 '{"tails":true}'   thrall humanoid 1.78   imp humanoid 1.72
+//   hero humanoid 1.8 '{"tails":true,"yaw":-1.5707963}'   (Tripo H3.1 mesh, which faces +X;
+//        textures: process_character_textures.py hero --size 2048)
+//   thrall humanoid 1.78   imp humanoid 1.72
 //   brute humanoid 2.9 '{"armR":0.055,"torsoR":0.13}'   boss humanoid 6.6 '{"armR":0.07,"torsoR":0.1}'
 //   hound quadruped 1.04   gazer gazer 2.2
 import { NodeIO } from '@gltf-transform/core';

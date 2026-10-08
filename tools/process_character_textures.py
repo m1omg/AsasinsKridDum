@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Turn the texture written by tools/convert_character.mjs into game assets.
 
-Usage: python3 tools/process_character_textures.py <name> [<name> ...] [--dir assets/models]
+Usage: python3 tools/process_character_textures.py <name> [<name> ...] [--dir assets/models] [--size N]
 
-Reads <dir>/<name>.src.png, writes <dir>/<name>.webp and, for demons with
+Reads <dir>/<name>.src.png (or .src.jpg), writes <dir>/<name>.webp (scaled
+down to at most N pixels when --size is given) and, for demons with
 molten cracks or burning eyes, a <dir>/<name>_e.webp glow map (added to the
 emissive light in the game). The hero gets a soft face light instead, so his
 face stays readable under the hood. The .src.png is removed afterwards.
@@ -85,20 +86,34 @@ def face_light(im, bin_path, gain):
     hc = np.array(header['bones'][bi['head']]['pos'])
     s = header['dims']['height'] / 1.8
     head = (W * (J == bi['head'])).sum(1) + (W * (J == bi['neck'])).sum(1)
-    front = (head > 0.5) & (N[:, 2] > 0.15) & (np.abs(P[:, 0] - hc[0]) < 0.085 * s) \
-        & (P[:, 1] > hc[1] - 0.08 * s) & (P[:, 1] < hc[1] + 0.14 * s) & (P[:, 2] > hc[2] + 0.02 * s)
+    # face and front of the neck, inside the hood opening
+    band = (P[:, 1] > hc[1] - 0.2 * s) & (P[:, 1] < hc[1] + 0.14 * s)
+    facing = band & (head > 0.3) & (N[:, 2] > 0.5)
+    cx = np.median(P[facing, 0]) if facing.any() else hc[0]
+    front = band & (head > 0.3) & (N[:, 2] > 0.05) & (np.abs(P[:, 0] - cx) < 0.095 * s) & (P[:, 2] > hc[2] - 0.02 * s)
+    # throat and the skin showing at the collar (only skin-coloured texels are lit there)
+    collar = (P[:, 1] > hc[1] - 0.34 * s) & (P[:, 1] <= hc[1] - 0.02 * s) & (N[:, 2] > 0.2) \
+        & (np.abs(P[:, 0] - cx) < 0.07 * s) & (P[:, 2] > hc[2] - 0.02 * s)
     size = im.size[0]
-    m = Image.new('L', im.size, 0)
-    d = ImageDraw.Draw(m)
-    for t in I:
-        if front[t].all():
-            d.polygon([(UV[k, 0] * size, UV[k, 1] * im.size[1]) for k in t], fill=255)
-    mask = np.asarray(m.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.GaussianBlur(3))).astype(np.float32) / 255
+    grow = 5 if size <= 1024 else 9  # cover the gaps between neighbouring triangles
+
+    def region(sel):
+        m = Image.new('L', im.size, 0)
+        d = ImageDraw.Draw(m)
+        for t in I:
+            if sel[t].all():
+                d.polygon([(UV[k, 0] * size, UV[k, 1] * im.size[1]) for k in t], fill=255)
+        return np.asarray(m.filter(ImageFilter.MaxFilter(grow)).filter(ImageFilter.GaussianBlur(3))).astype(np.float32) / 255
     a = np.asarray(im).astype(np.float32) / 255.0
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
     mx = a.max(-1)
     sat = np.where(mx > 1e-4, (mx - a.min(-1)) / np.maximum(mx, 1e-4), 0)
+    d = np.maximum(mx - a.min(-1), 1e-4)
+    hue = np.where(mx == r, ((g - b) / d) % 6, np.where(mx == g, (b - r) / d + 2, (r - g) / d + 4)) * 60
+    skin = smoothstep(0.12, 0.2, sat) * (1 - smoothstep(0.65, 0.8, sat)) * smoothstep(0.22, 0.32, mx) * (1 - smoothstep(40, 55, hue))
     cloth = np.clip((mx - 0.62) / 0.15, 0, 1) * np.clip((0.22 - sat) / 0.1, 0, 1)  # white hood lining
-    glow = np.clip(a * (mask * (1 - cloth) * gain)[..., None], 0, 1)
+    mask = np.maximum(region(front) * (1 - cloth), region(collar) * skin)
+    glow = np.clip(a * (mask * gain)[..., None], 0, 1)
     return Image.fromarray((glow * 255).astype(np.uint8)).resize((512, 512), Image.LANCZOS)
 
 
@@ -106,11 +121,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('names', nargs='+')
     ap.add_argument('--dir', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'assets', 'models'))
+    ap.add_argument('--size', type=int, default=0, help='largest texture side to keep (0 = as generated)')
     args = ap.parse_args()
     for n in args.names:
         src = os.path.join(args.dir, n + '.src.png')
+        if not os.path.exists(src):
+            src = os.path.join(args.dir, n + '.src.jpg')
         out = os.path.join(args.dir, n + '.webp')
-        Image.open(src).convert('RGB').save(out, 'WEBP', quality=86, method=6)
+        im = Image.open(src).convert('RGB')
+        if args.size and max(im.size) > args.size:
+            im = im.resize((args.size, args.size * im.size[1] // im.size[0]), Image.LANCZOS)
+        im.save(out, 'WEBP', quality=86, method=6)
         line = f'{n}: {os.path.getsize(out) // 1024} KB'
         e = None
         if n in GLOW:
