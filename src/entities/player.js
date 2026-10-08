@@ -32,6 +32,8 @@ export const P = {
 const climbFilter = (c) => c.climbable && c.kind !== 'bounds';
 const overheadFilter = (c) => c.kind !== 'awning' && c.kind !== 'beam' && c.kind !== 'railing';
 const _hit = {};
+const _walk = { y: 0, c: null };
+const _grad = [0, 0];
 
 export class Player {
   constructor(game) {
@@ -132,10 +134,17 @@ export class Player {
     const fn = this['st_' + this.state];
     if (fn) fn.call(this, dt);
     if (this.combatTick) this.combatTick(dt);
-    // smoothed visual height (stairs / small steps), logic stays exact
+    // smoothed visual height: steps (kerbs, plinths) ease in, logic stays exact; on a roof slope or
+    // ramp the body follows the surface exactly instead of lagging into it going up and floating going down
     const smooth = (this.state === 'ground' || this.state === 'landroll') && this.grounded;
-    if (smooth && Math.abs(this.visY - this.pos.y) < 0.7) this.visY = damp(this.visY, this.pos.y, 22, dt);
-    else this.visY = this.pos.y;
+    if (smooth) {
+      const c = this.ground.c;
+      const dy = this.pos.y - this.prev.y;
+      // a rise or fall the slope accounts for (not a step onto or off something) is followed exactly
+      if (c && c.sloped && Math.abs(dy) <= Math.hypot(this.pos.x - this.prev.x, this.pos.z - this.prev.z) * c.maxGrade + 0.02) this.visY += dy;
+      if (Math.abs(this.visY - this.pos.y) < 0.7) this.visY = damp(this.visY, this.pos.y, 22, dt);
+      else this.visY = this.pos.y;
+    } else this.visY = this.pos.y;
     // safety: never fall out of the world
     if (this.pos.y < -20) {
       const sp = this.game.city.spawn;
@@ -166,8 +175,16 @@ export class Player {
     speed *= md.len;
     if (this.speedMul) speed *= this.speedMul;
     // accelerate toward desired velocity
-    const tx = md.len > 0.05 ? (md.x / md.len) * speed : 0;
-    const tz = md.len > 0.05 ? (md.z / md.len) * speed : 0;
+    let tx = md.len > 0.05 ? (md.x / md.len) * speed : 0;
+    let tz = md.len > 0.05 ? (md.z / md.len) * speed : 0;
+    // on a slope, the same pace along the surface as on the flat (not faster up and down a steep roof)
+    const gc = this.ground.c;
+    if (gc && gc.sloped && md.len > 0.05) {
+      const gr = gc.gradientAt(this.pos.x, this.pos.z, _grad);
+      const along = (gr[0] * md.x + gr[1] * md.z) / md.len;
+      const f = 1 / Math.sqrt(1 + along * along);
+      tx *= f; tz *= f;
+    }
     const a = P.ACCEL * dt;
     this.vel.x = approach(this.vel.x, tx, a);
     this.vel.z = approach(this.vel.z, tz, a);
@@ -220,7 +237,7 @@ export class Player {
   }
 
   onSlopeOrStairs(c) {
-    return c && (c.slope || c.kind === 'stairs');
+    return c && (c.sloped || c.kind === 'stairs');
   }
 
   balanceOnBeam(dt) {
@@ -258,13 +275,10 @@ export class Player {
     const col = this.col;
     const px = this.pos.x, py = this.pos.y, pz = this.pos.z;
     const perpX = -dz, perpZ = dx;
-    // is there a gap in front?
-    let gapAt = -1;
-    for (let d = 0.6; d <= 2.6; d += 0.25) {
-      const g = col.groundAt(px + dx * d, pz + dz * d, 0.12, py + 0.6);
-      if (g.y < py - 1.1) { gapAt = d; break; }
-    }
-    if (gapAt < 0) return null;
+    // is there a gap in front? (a roof that slopes on, up or down, isn't one)
+    const gap = this.dropAhead(dx, dz, 2.6, 1.1);
+    if (!gap) return null;
+    const gapAt = Math.max(0.6, gap.d);
     const res = {};
     let best = null, bestScore = Infinity;
     for (let d = gapAt + 0.8; d <= maxD; d += 0.4) {
@@ -306,17 +320,32 @@ export class Player {
     return null;
   }
 
+  /**
+   * Follow the walkable surface ahead for `dist` metres, up and down slopes and steps as the
+   * player would, and return the first drop deeper than `drop` as { d, y } (null if none).
+   * Sampled every 0.25 m (from 0.1 m, so samples from 0.6 m on fall where they always did).
+   */
+  dropAhead(fx, fz, dist, drop) {
+    let y = this.pos.y;
+    for (let d = 0.1; d <= dist + 1e-6; d += 0.25) {
+      const g = this.col.groundAt(this.pos.x + fx * d, this.pos.z + fz * d, 0.12, y + P.STEP, _walk);
+      if (g.y < y - drop) return { d, y: g.y };
+      y = g.y;
+    }
+    return null;
+  }
+
   /** Sprinting toward a roof edge: leap if there's a target, otherwise brake. */
   handleEdge() {
     if (this.time < (this.edgeCooldown || 0)) return this.brakeAtEdge();
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
     const ahead = P.R + 0.35 + this.speed2d * 0.06;
-    const g = this.col.groundAt(this.pos.x + fx * ahead, this.pos.z + fz * ahead, 0.12, this.pos.y + P.STEP);
-    if (g.y >= this.pos.y - 1.2) return false;
+    const edge = this.dropAhead(fx, fz, ahead, 1.2);
+    if (!edge) return false;
     const tgt = this.findJumpTarget(fx, fz);
     if (tgt) { this.doJump(tgt); return true; }
     this.edgeCooldown = this.time + 0.2;
-    this.edgeDrop = this.pos.y - g.y;
+    this.edgeDrop = this.pos.y - edge.y;
     return this.brakeAtEdge();
   }
 
@@ -324,9 +353,9 @@ export class Player {
   brakeAtEdge() {
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
     const ahead = P.R + 0.35 + this.speed2d * 0.06;
-    const g = this.col.groundAt(this.pos.x + fx * ahead, this.pos.z + fz * ahead, 0.12, this.pos.y + P.STEP);
-    if (g.y >= this.pos.y - 1.2) return false;
-    if (this.pos.y - g.y > 4 && !this.input.held('jump')) {
+    const edge = this.dropAhead(fx, fz, ahead, 1.2);
+    if (!edge) return false;
+    if (this.pos.y - edge.y > 4 && !this.input.held('jump')) {
       const vf = this.vel.x * fx + this.vel.z * fz;
       if (vf > 0) { this.vel.x -= fx * vf; this.vel.z -= fz * vf; }
     }
@@ -470,7 +499,7 @@ export class Player {
     }
     this.vel.y -= P.GRAV * dt;
     if (this.vel.y < -40) this.vel.y = -40;
-    const oldY = this.pos.y;
+    const oldY = this.pos.y, oldX = this.pos.x, oldZ = this.pos.z;
     this.pos.x += this.vel.x * dt;
     this.pos.y += this.vel.y * dt;
     this.pos.z += this.vel.z * dt;
@@ -478,6 +507,14 @@ export class Player {
 
     // wall catch (ledges and walls in the direction of travel)
     if (this.tryAirCatch(md)) return;
+
+    // a roof slope or the dome that rose under the feet (jumping up it): land on it, rather than be
+    // pushed off it sideways as if it were a wall
+    const gs = this.col.groundAt(this.pos.x, this.pos.z, P.FOOT_R, this.pos.y + 0.9, this.ground);
+    if (gs.c && gs.c.sloped && this.pos.y <= gs.y && oldY >= gs.c.topAt(oldX, oldZ) - 0.05) {
+      this.land(gs);
+      return;
+    }
 
     const contacts = this._contacts || (this._contacts = []);
     contacts.length = 0;
@@ -642,7 +679,20 @@ export class Player {
     this.wall.top = null;
     if (!hHands) {
       const top = this.wallTop(ref.x, ref.z, ref.nx, ref.nz, y + 2.3);
-      if (top !== null && top > y + 0.7) {
+      // not a ledge but a surface that keeps rising steeply past the hands (the dome): scramble up onto it
+      const top2 = top !== null ? this.wallTop(ref.x, ref.z, ref.nx, ref.nz, y + 3.2, 0.55) : null;
+      if (top !== null && top2 !== null && top2 - top > 0.37 * 1.5) {
+        if (inY > 0.15 || this.climbBoost > 0) {
+          const onX = ref.x - ref.nx * 0.35, onZ = ref.z - ref.nz * 0.35;
+          const g = col.groundAt(onX, onZ, P.FOOT_R, top + 1.2);
+          if (g.c && g.c.sloped && g.y > y && g.y < y + 2.4 && col.isFree(onX, onZ, P.R * 0.7, g.y + 0.6, g.y + P.H - 0.05)) {
+            this.climbBoost = 0;
+            this.beginTrans('mantle', { x: onX, y: g.y, z: onZ }, 0.45, g.y + 0.05);
+            this.game.audio?.play('mantle', { pos: this.pos, volume: 0.5 });
+            return;
+          }
+        }
+      } else if (top !== null && top > y + 0.7) {
         this.wall.top = top;
         if (this.pos.y > top - P.HANG) { this.pos.y = top - P.HANG; this.climbBoost = 0; }
         this.wall.hanging = this.pos.y >= top - P.HANG - 0.08;

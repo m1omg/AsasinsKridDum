@@ -1,5 +1,7 @@
 // Static + dynamic collision world made of axis-aligned boxes and "slopes"
-// (boxes whose top surface rises linearly along X or Z: roofs, ramps, stairs).
+// (boxes whose top surface rises linearly along X or Z: roofs, ramps, stairs),
+// plus a few shapes for roofs that are neither: pyramids (tower roofs), and
+// round cylinders and domes (the cathedral's drum, dome and lantern).
 // Spatial hash on the XZ plane; supports ground/ceiling queries, character
 // circle push-out, raycasts and free-space checks.
 
@@ -30,6 +32,35 @@ export class Collider {
       this.slope.lo = lo;
       this.slope.k = (this.slope.y1 - this.slope.y0) / (hi - lo);
     }
+    // shape: { type: 'pyramid', y0, y1 }  four faces from y0 at the footprint's edges up to y1 at its centre
+    //        { type: 'cylinder' }         round footprint (the circle inside the box), flat top at maxY
+    //        { type: 'dome', y0, h }      round footprint, half-ellipsoid rising h above y0 at the centre
+    this.shape = opts.shape || null;
+    this.round = false;
+    if (this.shape) {
+      const sh = this.shape;
+      this.cx = (this.minX + this.maxX) / 2;
+      this.cz = (this.minZ + this.maxZ) / 2;
+      sh.hx = (this.maxX - this.minX) / 2;
+      sh.hz = (this.maxZ - this.minZ) / 2;
+      this.round = sh.type === 'cylinder' || sh.type === 'dome';
+      this.r = Math.min(sh.hx, sh.hz);
+      if (sh.type === 'pyramid') {
+        this.maxY = sh.y1;
+        const kx = (sh.y1 - sh.y0) / sh.hx, kz = (sh.y1 - sh.y0) / sh.hz;
+        sh.grade = Math.max(kx, kz);
+        // the solid is where y is under all four roof planes and above the base
+        sh.planes = [
+          [kx, 1, 0, sh.y1 + kx * this.cx], [-kx, 1, 0, sh.y1 - kx * this.cx],
+          [0, 1, kz, sh.y1 + kz * this.cz], [0, 1, -kz, sh.y1 - kz * this.cz],
+          [0, -1, 0, -this.minY],
+          [-1, 0, 0, -this.minX], [1, 0, 0, this.maxX], [0, 0, -1, -this.minZ], [0, 0, 1, this.maxZ],
+        ];
+      } else if (sh.type === 'dome') {
+        this.maxY = sh.y0 + sh.h;
+        sh.grade = 4; // nearly vertical at the rim
+      } else sh.grade = 0;
+    }
     this.stamp = 0;
     this.cells = null;
   }
@@ -37,10 +68,50 @@ export class Collider {
   /** Height of the top surface at (x, z) (clamped into the footprint). */
   topAt(x, z) {
     const s = this.slope;
-    if (!s) return this.maxY;
-    const c = s.axis === 'x' ? Math.min(Math.max(x, this.minX), this.maxX) : Math.min(Math.max(z, this.minZ), this.maxZ);
-    return s.y0 + s.k * (c - s.lo);
+    if (s) {
+      const c = s.axis === 'x' ? Math.min(Math.max(x, this.minX), this.maxX) : Math.min(Math.max(z, this.minZ), this.maxZ);
+      return s.y0 + s.k * (c - s.lo);
+    }
+    const sh = this.shape;
+    if (!sh || sh.type === 'cylinder') return this.maxY;
+    if (sh.type === 'pyramid') {
+      const f = Math.min(1, Math.max(Math.abs(x - this.cx) / sh.hx, Math.abs(z - this.cz) / sh.hz));
+      return sh.y1 - (sh.y1 - sh.y0) * f;
+    }
+    return this.domeAt(Math.hypot(x - this.cx, z - this.cz));
   }
+
+  /** Rise of the top surface per metre along x and along z at (x, z), into out = [gx, gz]. */
+  gradientAt(x, z, out = [0, 0]) {
+    out[0] = 0; out[1] = 0;
+    const s = this.slope, sh = this.shape;
+    if (s) { if (s.axis === 'x') out[0] = s.k; else out[1] = s.k; }
+    else if (sh && sh.type === 'pyramid') {
+      const ux = (x - this.cx) / sh.hx, uz = (z - this.cz) / sh.hz;
+      if (Math.abs(ux) >= Math.abs(uz)) out[0] = -Math.sign(ux) * (sh.y1 - sh.y0) / sh.hx;
+      else out[1] = -Math.sign(uz) * (sh.y1 - sh.y0) / sh.hz;
+    } else if (sh && sh.type === 'dome') {
+      const dx = x - this.cx, dz = z - this.cz, d = Math.hypot(dx, dz);
+      const q = Math.min(d / this.r, 0.995);
+      if (d > 1e-6 && d < this.r) {
+        const k = -sh.h * q / (this.r * Math.sqrt(1 - q * q));
+        out[0] = k * dx / d; out[1] = k * dz / d;
+      }
+    }
+    return out;
+  }
+
+  /** Dome height at distance d from its centre (its rim height outside). */
+  domeAt(d) {
+    const sh = this.shape, q = d / this.r;
+    return q >= 1 ? sh.y0 : sh.y0 + sh.h * Math.sqrt(1 - q * q);
+  }
+
+  /** The top surface isn't flat (a roof slope, ramp, stairs, pyramid or dome). */
+  get sloped() { return !!this.slope || (!!this.shape && this.shape.type !== 'cylinder'); }
+
+  /** Steepest rise of the top surface per metre across. */
+  get maxGrade() { return this.slope ? Math.abs(this.slope.k) : this.shape ? this.shape.grade : 0; }
 
   /** Slope angle (rad) of the top surface. */
   steepness() {
@@ -51,7 +122,12 @@ export class Collider {
   get depth() { return this.maxZ - this.minZ; }
 }
 
+/** Squared distance from (x, z) to the collider's footprint (0 inside). */
 function circleRectDist(x, z, c) {
+  if (c.round) {
+    const d = Math.hypot(x - c.cx, z - c.cz) - c.r;
+    return d > 0 ? d * d : 0;
+  }
   const qx = x < c.minX ? c.minX : x > c.maxX ? c.maxX : x;
   const qz = z < c.minZ ? c.minZ : z > c.maxZ ? c.maxZ : z;
   const dx = x - qx, dz = z - qz;
@@ -137,6 +213,13 @@ export class CollisionWorld {
       const c = list[i];
       if (!c.walkable) continue;
       if (circleRectDist(x, z, c) > r2) continue;
+      const s = c.slope;
+      if (s) {
+        // past a slope's high edge (over a ridge, or beyond the head of a ramp) it gives no footing:
+        // the surface the point is actually on does, so a ridge is crossed without a bump
+        const u = s.axis === 'x' ? x : z;
+        if (s.k > 0 ? u > (s.axis === 'x' ? c.maxX : c.maxZ) : s.k < 0 && u < s.lo) continue;
+      }
       const top = c.topAt(x, z);
       if (top <= maxY && top > res.y) {
         res.y = top;
@@ -160,9 +243,14 @@ export class CollisionWorld {
     return best;
   }
 
-  _blocks(c, x, z, yLo, yHi) {
+  _blocks(c, x, z, yLo, yHi, r = 0) {
     if (c.minY >= yHi) return false;
-    const top = c.slope ? c.topAt(x, z) : c.maxY;
+    let top;
+    if (c.round && c.shape.type === 'dome') {
+      // from outside, the steep rim is met by the circle's leading edge, not its centre
+      const d = Math.hypot(x - c.cx, z - c.cz);
+      top = c.domeAt(d >= c.r ? Math.max(0, d - r) : d);
+    } else top = c.slope || c.shape ? c.topAt(x, z) : c.maxY;
     return top > yLo;
   }
 
@@ -179,13 +267,33 @@ export class CollisionWorld {
       for (let i = 0; i < list.length; i++) {
         const c = list[i];
         if (filter && !filter(c)) continue;
-        if (!this._blocks(c, pos.x, pos.z, yLo, yHi)) continue;
+        if (!this._blocks(c, pos.x, pos.z, yLo, yHi, r)) continue;
+        let nx, nz, push;
+        if (c.round) {
+          const dx = pos.x - c.cx, dz = pos.z - c.cz;
+          const d = Math.hypot(dx, dz);
+          // out to the side, or (on a dome, above its rim) just far out enough that the surface is below the knees
+          let out = c.r + r;
+          const sh = c.shape;
+          if (sh.type === 'dome' && yLo > sh.y0) {
+            const u = Math.min(1, (yLo - sh.y0) / sh.h);
+            out = c.r * Math.sqrt(1 - u * u) + (d >= c.r ? r : 0);
+          }
+          if (d >= out) continue;
+          if (d > 1e-6) { nx = dx / d; nz = dz / d; } else { nx = 1; nz = 0; }
+          push = out - d;
+          pos.x += nx * push;
+          pos.z += nz * push;
+          moved = true;
+          count++;
+          if (contacts) contacts.push({ nx, nz, c });
+          continue;
+        }
         const qx = pos.x < c.minX ? c.minX : pos.x > c.maxX ? c.maxX : pos.x;
         const qz = pos.z < c.minZ ? c.minZ : pos.z > c.maxZ ? c.maxZ : pos.z;
         let dx = pos.x - qx, dz = pos.z - qz;
         const d2 = dx * dx + dz * dz;
         if (d2 >= r * r) continue;
-        let nx, nz, push;
         if (d2 > 1e-10) {
           const d = Math.sqrt(d2);
           nx = dx / d; nz = dz / d;
@@ -218,7 +326,7 @@ export class CollisionWorld {
       const c = list[i];
       if (filter && !filter(c)) continue;
       if (circleRectDist(x, z, c) >= r2) continue;
-      if (this._blocks(c, x, z, yLo, yHi)) return false;
+      if (this._blocks(c, x, z, yLo, yHi, r)) return false;
     }
     return true;
   }
@@ -247,7 +355,7 @@ export class CollisionWorld {
           if (c.stamp === s) continue;
           c.stamp = s;
           if (filter && !filter(c)) continue;
-          const h = c.slope ? this._rayWedge(c, ox, oy, oz, dx, dy, dz, bestT) : this._rayBox(c, ox, oy, oz, dx, dy, dz, bestT);
+          const h = c.shape ? this._rayShape(c, ox, oy, oz, dx, dy, dz, bestT) : c.slope ? this._rayWedge(c, ox, oy, oz, dx, dy, dz, bestT) : this._rayBox(c, ox, oy, oz, dx, dy, dz, bestT);
           if (h !== null && h.t < bestT) {
             bestT = h.t; best = c; bnx = h.nx; bny = h.ny; bnz = h.nz;
           }
@@ -312,6 +420,60 @@ export class CollisionWorld {
       [0, -1, 0, -c.minY],
       s.axis === 'x' ? [-s.k, 1, 0, s.y0 - s.k * s.lo] : [0, 1, -s.k, s.y0 - s.k * s.lo],
     ];
+    return this._rayPlanes(planes, ox, oy, oz, dx, dy, dz, maxT);
+  }
+
+  _rayShape(c, ox, oy, oz, dx, dy, dz, maxT) {
+    const sh = c.shape;
+    if (sh.type === 'pyramid') return this._rayPlanes(sh.planes, ox, oy, oz, dx, dy, dz, maxT);
+    const fx = ox - c.cx, fz = oz - c.cz;
+    let t0 = -Infinity, t1 = Infinity, nx = 0, ny = 0, nz = 0;
+    if (sh.type === 'cylinder') {
+      // round side
+      const a = dx * dx + dz * dz, cc = fx * fx + fz * fz - c.r * c.r;
+      if (a < 1e-12) { if (cc > 0) return null; }
+      else {
+        const b = fx * dx + fz * dz, disc = b * b - a * cc;
+        if (disc < 0) return null;
+        const sq = Math.sqrt(disc);
+        t0 = (-b - sq) / a; t1 = (-b + sq) / a;
+        const px = fx + dx * t0, pz = fz + dz * t0, l = Math.hypot(px, pz) || 1;
+        nx = px / l; nz = pz / l;
+      }
+      // flat top and bottom
+      if (Math.abs(dy) < 1e-12) { if (oy < c.minY || oy > c.maxY) return null; }
+      else {
+        let ta = (c.minY - oy) / dy, tb = (c.maxY - oy) / dy, n = -1;
+        if (ta > tb) { const tt = ta; ta = tb; tb = tt; n = 1; }
+        if (ta > t0) { t0 = ta; nx = 0; ny = n; nz = 0; }
+        if (tb < t1) t1 = tb;
+      }
+    } else {
+      // dome: half-ellipsoid above y0, in the space where it is a unit sphere
+      const sx = 1 / c.r, sy = 1 / sh.h;
+      const Ox = fx * sx, Oy = (oy - sh.y0) * sy, Oz = fz * sx;
+      const Dx = dx * sx, Dy = dy * sy, Dz = dz * sx;
+      const a = Dx * Dx + Dy * Dy + Dz * Dz, b = Ox * Dx + Oy * Dy + Oz * Dz, cc = Ox * Ox + Oy * Oy + Oz * Oz - 1;
+      const disc = b * b - a * cc;
+      if (a < 1e-12 || disc < 0) return null;
+      const sq = Math.sqrt(disc);
+      t0 = (-b - sq) / a; t1 = (-b + sq) / a;
+      const X = Ox + Dx * t0, Y = Oy + Dy * t0, Z = Oz + Dz * t0;
+      const gx = X * sx, gy = Y * sy, gz = Z * sx, gl = Math.hypot(gx, gy, gz) || 1;
+      nx = gx / gl; ny = gy / gl; nz = gz / gl;
+      // flat base
+      if (Math.abs(dy) < 1e-12) { if (oy < sh.y0) return null; }
+      else {
+        const tp = (sh.y0 - oy) / dy;
+        if (dy > 0) { if (tp > t0) { t0 = tp; nx = 0; ny = -1; nz = 0; } } else if (tp < t1) t1 = tp;
+      }
+    }
+    if (t0 > t1 || t1 < 0 || t0 > maxT) return null;
+    if (t0 < 0) return { t: 0, nx: 0, ny: 1, nz: 0 }; // starts inside
+    return { t: t0, nx, ny, nz };
+  }
+
+  _rayPlanes(planes, ox, oy, oz, dx, dy, dz, maxT) {
     let tEnter = 0, tExit = maxT, en = null;
     for (const p of planes) {
       const denom = p[0] * dx + p[1] * dy + p[2] * dz;

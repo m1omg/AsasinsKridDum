@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ChunkedBuilder, MeshBuilder } from '../render/meshbuilder.js';
 import { NavGrid } from './nav.js';
+import { ReliefMap } from './relief.js';
 import { makeRng, clamp, lerp } from '../core/math.js';
 
 // ---------------------------------------------------------------------------
@@ -78,6 +79,7 @@ export class City {
     this.windows = { dark: [], lit: [], frames: [], sills: [] };
     this.doors = [];
     this.reserved = [];
+    this.relief = new ReliefMap(); // decorations standing out of the walls (climbing hands and feet rest on them)
   }
 
   // -------------------------------------------------------------- helpers
@@ -199,7 +201,8 @@ export class City {
         const cx = sx * 118, cz = sz * 118;
         this.block('stone', [0.58, 0.5, 0.46], cx - 6, 0, cz - 6, cx + 6, 22, cz + 6, { kind: 'tower' });
         this.B('roof', cx, cz).pyramid(cx - 6.6, cz - 6.6, cx + 6.6, cz + 6.6, 22, 30, WHITE, 3);
-        this.solid(cx - 6, 22, cz - 6, cx + 6, 23, cz + 6, { kind: 'roof' });
+        // collider over the walls (no overhang, so the climb over the edge works), on the drawn faces
+        this.solid(cx - 6, 22, cz - 6, cx + 6, 30, cz + 6, { kind: 'roof', shape: { type: 'pyramid', y0: 22 + 8 * 0.6 / 6.6, y1: 30 } });
       }
     }
     // gate houses in the middle of each side
@@ -355,6 +358,7 @@ export class City {
 
     // plinth (stone base band)
     this.B('stone', cx, cz).box(x0 - 0.06, 0, z0 - 0.06, x1 + 0.06, PLINTH, z1 + 0.06, [0.7, 0.65, 0.6], 2.5, 1 | 2 | 16 | 32);
+    this.relief.add(x0 - 0.06, 0, z0 - 0.06, x1 + 0.06, PLINTH, z1 + 0.06);
     // main walls (top face only for flat roofs)
     this.B('plaster', cx, cz).box(x0, PLINTH, z0, x1, H, z1, color, 4, 1 | 2 | 16 | 32 | (roofType === 'flat' ? 4 : 0));
     const body = this.solid(x0, 0, z0, x1, H, z1, { kind: 'building' });
@@ -396,6 +400,7 @@ export class City {
         if (!(exposed & bit)) continue;
         this.block('plaster', color, ex0, H, ez0, ex1, H + ph, ez1, { kind: 'parapet', uv: 4, faces: 1 | 2 | 16 | 32 });
         this.B('stone', cx, cz).box(ex0 - 0.04, H + ph, ez0 - 0.04, ex1 + 0.04, H + ph + 0.1, ez1 + 0.04, pc, 2, 55);
+        this.relief.add(ex0 - 0.04, H + ph, ez0 - 0.04, ex1 + 0.04, H + ph + 0.1, ez1 + 0.04);
       }
       b.top = H;
       // rooftop clutter
@@ -418,11 +423,11 @@ export class City {
 
   cornice(x0, z0, x1, z1, y, h, out, exposed, cx, cz) {
     const c = [0.78, 0.72, 0.64];
-    const B = this.B('stone', cx, cz);
-    if (exposed & 16) B.box(x0 - (exposed & 2 ? out : 0), y, z1, x1 + (exposed & 1 ? out : 0), y + h, z1 + out, c, 2, 4 | 8 | 16 | 1 | 2);
-    if (exposed & 32) B.box(x0 - (exposed & 2 ? out : 0), y, z0 - out, x1 + (exposed & 1 ? out : 0), y + h, z0, c, 2, 4 | 8 | 32 | 1 | 2);
-    if (exposed & 1) B.box(x1, y, z0, x1 + out, y + h, z1, c, 2, 4 | 8 | 1);
-    if (exposed & 2) B.box(x0 - out, y, z0, x0, y + h, z1, c, 2, 4 | 8 | 2);
+    const B = this.B('stone', cx, cz), R = this.relief;
+    if (exposed & 16) { B.box(x0 - (exposed & 2 ? out : 0), y, z1, x1 + (exposed & 1 ? out : 0), y + h, z1 + out, c, 2, 4 | 8 | 16 | 1 | 2); R.add(x0 - (exposed & 2 ? out : 0), y, z1, x1 + (exposed & 1 ? out : 0), y + h, z1 + out); }
+    if (exposed & 32) { B.box(x0 - (exposed & 2 ? out : 0), y, z0 - out, x1 + (exposed & 1 ? out : 0), y + h, z0, c, 2, 4 | 8 | 32 | 1 | 2); R.add(x0 - (exposed & 2 ? out : 0), y, z0 - out, x1 + (exposed & 1 ? out : 0), y + h, z0); }
+    if (exposed & 1) { B.box(x1, y, z0, x1 + out, y + h, z1, c, 2, 4 | 8 | 1); R.add(x1, y, z0, x1 + out, y + h, z1); }
+    if (exposed & 2) { B.box(x0 - out, y, z0, x0, y + h, z1, c, 2, 4 | 8 | 2); R.add(x0 - out, y, z0, x0, y + h, z1); }
   }
 
   /** Windows (instanced) on exposed faces, doors on the ground floor. */
@@ -588,6 +593,7 @@ export class City {
     }
     // plinth band + cornice outside
     this.B('stone', cx, cz).box(x0 - 0.06, 0, z0 - 0.06, x1 + 0.06, 0.5, z1 + 0.06, [0.7, 0.65, 0.6], 2.5, 1 | 2 | 16 | 32);
+    this.relief.add(x0 - 0.06, 0, z0 - 0.06, x1 + 0.06, 0.5, z1 + 0.06);
     this.cornice(x0, z0, x1, z1, H - 0.2, 0.3, 0.3, exposed, cx, cz);
 
     // stairs
@@ -633,6 +639,7 @@ export class City {
     for (const [bit, ex0, ez0, ex1, ez1] of [[1, x1 - t, z0, x1, z1], [2, x0, z0, x0 + t, z1], [16, x0, z1 - t, x1, z1], [32, x0, z0, x1, z0 + t]]) {
       this.block('plaster', color, ex0, H, ez0, ex1, H + ph, ez1, { kind: 'parapet', uv: 4, faces: 1 | 2 | 16 | 32 });
       this.B('stone', cx, cz).box(ex0 - 0.04, H + ph, ez0 - 0.04, ex1 + 0.04, H + ph + 0.1, ez1 + 0.04, [0.72, 0.66, 0.6], 2, 55);
+      this.relief.add(ex0 - 0.04, H + ph, ez0 - 0.04, ex1 + 0.04, H + ph + 0.1, ez1 + 0.04);
       void bit;
     }
 
@@ -668,6 +675,8 @@ export class City {
     const dfi = faceInfo[doorBit];
     if (dfi.axis === 'x') this.B('stone', cx, cz).box(doorA - 1.0, 2.6, dfi.fixed - 0.1, doorA + 1.0, 2.95, dfi.fixed + 0.1, [0.75, 0.7, 0.62], 2, 55);
     else this.B('stone', cx, cz).box(dfi.fixed - 0.1, 2.6, doorA - 1.0, dfi.fixed + 0.1, 2.95, doorA + 1.0, [0.75, 0.7, 0.62], 2, 55);
+    if (dfi.axis === 'x') this.relief.add(doorA - 1.0, 2.6, dfi.fixed - 0.1, doorA + 1.0, 2.95, dfi.fixed + 0.1);
+    else this.relief.add(dfi.fixed - 0.1, 2.6, doorA - 1.0, dfi.fixed + 0.1, 2.95, doorA + 1.0);
   }
 
   wallWithOpenings(ws, y0, y1, ops, color, cx, cz) {
@@ -850,6 +859,7 @@ export class City {
     // ledges every 5m (visual climbing cues)
     for (let y = 5; y < h - 1; y += 5) {
       this.B('stone', x, z).box(x0 - 0.2, y, z0 - 0.2, x1 + 0.2, y + 0.22, z1 + 0.2, [0.75, 0.7, 0.62], 2, 63);
+      this.relief.add(x0 - 0.2, y, z0 - 0.2, x1 + 0.2, y + 0.22, z1 + 0.2);
     }
     // crown: parapet + pyramid roof on corner pillars
     const ph = 1.0, roofBase = h + 3.2;
@@ -859,8 +869,9 @@ export class City {
     for (const [px, pz] of [[x0, z0], [x1 - 0.5, z0], [x0, z1 - 0.5], [x1 - 0.5, z1 - 0.5]]) {
       this.block('stone', stoneC, px, h + ph, pz, px + 0.5, roofBase, pz + 0.5, { kind: 'pillar', uv: 2 });
     }
-    this.B('roof', x, z).pyramid(x0 - 0.5, z0 - 0.5, x1 + 0.5, z1 + 0.5, roofBase, roofBase + (def.campanile ? 9 : 5), WHITE, 2.5);
-    this.solid(x0 - 0.5, roofBase, z0 - 0.5, x1 + 0.5, roofBase + 0.6, z1 + 0.5, { kind: 'roof', climbable: false });
+    const roofTop = roofBase + (def.campanile ? 9 : 5);
+    this.B('roof', x, z).pyramid(x0 - 0.5, z0 - 0.5, x1 + 0.5, z1 + 0.5, roofBase, roofTop, WHITE, 2.5);
+    this.solid(x0 - 0.5, roofBase, z0 - 0.5, x1 + 0.5, roofTop, z1 + 0.5, { kind: 'roof', climbable: false, shape: { type: 'pyramid', y0: roofBase, y1: roofTop } });
     // the perch: a wooden beam sticking out over the street
     const beamLen = 2.6;
     const pz0 = def.dir > 0 ? z1 - 0.3 : z0 - beamLen;
@@ -876,6 +887,40 @@ export class City {
     // torches on the tower
     this.addLight(x, h + 2, z + def.dir * (s + 0.6), 0xff8040, 2.2, 14, 0.3);
     this.fires.push({ x: x + 0.8, y: h + ph + 0.3, z: z + def.dir * (s + 0.15), size: 0.25 });
+  }
+
+  /** The cathedral facade's relief for climbing: bands, window hoods, and the round tracery in short straight pieces. */
+  facadeRelief() {
+    const R = this.relief;
+    for (const y of [8.6, 13.4, 26.2]) R.add(-12.2, y, -6.95, 12.2, y + 0.45, -5.75);
+    for (const sx of [-1, 1]) {
+      R.add(sx * 8.5 - 1.1, 0, -6, sx * 8.5 + 1.1, 4.2, -5.9);
+      R.add(sx * 8.5 - 1.4, 4.2, -6.0, sx * 8.5 + 1.4, 4.7, -5.75);
+      R.add(sx * 8.5 - 0.7, 15, -6, sx * 8.5 + 0.7, 21, -5.9);
+      R.add(sx * 8.5 - 1.0, 14.7, -6.0, sx * 8.5 + 1.0, 15.0, -5.75);
+    }
+    const ring = (cy, r, tube, z0, z1, a0, a1, n) => {
+      for (let k = 0; k < n; k++) {
+        const u0 = a0 + ((a1 - a0) * k) / n, u1 = a0 + ((a1 - a0) * (k + 1)) / n;
+        const xa = Math.cos(u0) * r, ya = Math.sin(u0) * r, xb = Math.cos(u1) * r, yb = Math.sin(u1) * r;
+        R.add(Math.min(xa, xb) - tube, cy + Math.min(ya, yb) - tube, z0, Math.max(xa, xb) + tube, cy + Math.max(ya, yb) + tube, z1);
+      }
+    };
+    // rose window: glass disc, outer and inner rings, spokes; portal arch
+    for (let k = 0; k < 8; k++) {
+      const ya = -3.2 + k * 0.8, ym = ya + 0.4, hw = Math.sqrt(3.2 * 3.2 - ym * ym);
+      R.add(-hw, 19 + ya, -6.13, hw, 19 + ya + 0.8, -5.83);
+    }
+    ring(19, 3.35, 0.32, -6.07, -5.43, 0, Math.PI * 2, 24);
+    ring(19, 1.2, 0.16, -5.96, -5.64, 0, Math.PI * 2, 12);
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2, c = Math.cos(a), s = Math.sin(a);
+      for (let j = 0; j < 4; j++) {
+        const ra = 1.15 + j * 0.525, rb = ra + 0.525;
+        R.add(Math.min(c * ra, c * rb) - 0.08, 19 + Math.min(s * ra, s * rb) - 0.08, -5.89, Math.max(c * ra, c * rb) + 0.08, 19 + Math.max(s * ra, s * rb) + 0.08, -5.75);
+      }
+    }
+    ring(7.5, 3.0, 0.42, -6.27, -5.43, 0, Math.PI, 12);
   }
 
   makeCathedralQuarter() {
@@ -905,30 +950,26 @@ export class City {
     // transept
     this.block('stone', marble, -21, 0, -29, 21, naveH, -17, { kind: 'cathedral', uv: 3 });
     this.B('roof', 0, -23).gableRoof(-21, -29, 21, -17, naveH, naveH + 5, 'x', WHITE, 3, 0.4, 0.2, this.B('stone', 0, -23), marble);
-    this.addRoofColliders(-21, -29, -10, -17, naveH, 5, 'x');
-    this.addRoofColliders(10, -29, 21, -17, naveH, 5, 'x');
-    // dome over the crossing: octagonal drum + stepped colliders
-    const dx = 0, dz = -23;
-    this.B('stone', dx, dz).cylinder(dx, dz, naveH, naveH + 6, 9.2, 9.2, 8, marble, 3, false);
-    this.solid(-8.5, naveH, dz - 8.5, 8.5, naveH + 6, dz + 8.5, { kind: 'dome' });
-    this.B('roof', dx, dz).dome(dx, naveH + 6, dz, 9.2, 24, 10, [0.95, 0.75, 0.65], 3, 1.15);
-    const steps = 5;
-    for (let k = 0; k < steps; k++) {
-      const phi0 = (k / steps) * Math.PI / 2;
-      const r = 9.2 * Math.cos(phi0) * 0.92;
-      const ytop = naveH + 6 + 9.2 * 1.15 * Math.sin(((k + 1) / steps) * Math.PI / 2);
-      this.solid(dx - r, naveH + 6, dz - r, dx + r, ytop, dz + r, { kind: 'dome' });
-    }
+    this.addRoofColliders(-21, -29, -6.5, -17, naveH, 5, 'x');
+    this.addRoofColliders(6.5, -29, 21, -17, naveH, 5, 'x');
+    // dome over the crossing: a round drum and the dome itself, collided as drawn (climb the drum,
+    // then scramble up the dome to the lantern)
+    const dx = 0, dz = -23, domeR = 9.2, domeH = 9.2 * 1.15;
+    this.B('stone', dx, dz).cylinder(dx, dz, naveH, naveH + 6, domeR, domeR, 16, marble, 3, false);
+    this.solid(dx - domeR, naveH, dz - domeR, dx + domeR, naveH + 6, dz + domeR, { kind: 'dome', shape: { type: 'cylinder' } });
+    this.B('roof', dx, dz).dome(dx, naveH + 6, dz, domeR, 24, 10, [0.95, 0.75, 0.65], 3, 1.15);
+    this.solid(dx - domeR, naveH + 6, dz - domeR, dx + domeR, naveH + 6 + domeH, dz + domeR, { kind: 'dome', shape: { type: 'dome', y0: naveH + 6, h: domeH } });
     // lantern on top
-    const ly = naveH + 6 + 9.2 * 1.15;
+    const ly = naveH + 6 + domeH;
     this.B('stone', dx, dz).cylinder(dx, dz, ly - 0.3, ly + 3, 1.6, 1.6, 8, marble, 2, true);
     this.B('gold', dx, dz).cylinder(dx, dz, ly + 3, ly + 5.5, 1.7, 0.05, 8, WHITE, 2, false);
-    this.solid(dx - 1.6, ly - 0.3, dz - 1.6, dx + 1.6, ly + 3, dz + 1.6, { kind: 'lantern' });
+    this.solid(dx - 1.55, ly - 0.3, dz - 1.55, dx + 1.55, ly + 3, dz + 1.55, { kind: 'lantern', shape: { type: 'cylinder' } });
     this.relics.push({ x: dx, y: ly + 3.6, z: dz });
 
     // grand facade
     this.block('stone', marble, -12, 0, -6.8, 12, 27, -6, { kind: 'cathedral', uv: 3 });
     this.B('stone', 0, -6).box(-12.5, 27, -6.9, 12.5, 27.6, -5.9, [0.8, 0.75, 0.68], 3, 63);
+    this.relief.add(-12.5, 27, -6.9, 12.5, 27.6, -5.9);
     // pediment triangle
     this.B('stone', 0, -6).tri([-12, 27.6, -5.95], [12, 27.6, -5.95], [0, 33, -5.95], [0, 0, 1], [0, 0, 8, 0, 4, 2], marble);
     this.solid(-8, 27.6, -6.8, 8, 30.5, -6, { kind: 'cathedral' });
@@ -941,6 +982,7 @@ export class City {
     this.group.add(roseMesh);
     this.roseWindow = roseMesh;
     this.B('windowDark', 0, -6).box(-3, 0, -5.98, 3, 7.5, -5.9, WHITE, 1, 16);
+    this.relief.add(-3, 0, -6, 3, 7.5, -5.9);
     // rose window tracery: outer frame, inner ring and spokes
     const roseFrame = new MeshBuilder();
     const stoneTint = [0.85, 0.82, 0.76];
@@ -973,6 +1015,7 @@ export class City {
       this.B('windowDark', sx * 8.5, -6).box(sx * 8.5 - 0.7, 15, -5.98, sx * 8.5 + 0.7, 21, -5.9, WHITE, 1, 16);
       this.B('stone', sx * 8.5, -6).box(sx * 8.5 - 1.0, 14.7, -6.0, sx * 8.5 + 1.0, 15.0, -5.75, marbleG, 2, 55);
     }
+    this.facadeRelief();
     this.B('gold', 0, -6).cylinder(0, -6.4, 33, 35.5, 0.35, 0.02, 8, WHITE, 1, false);
     this.cathedralDoor = { x: 0, z: -5.5 };
     // steps
@@ -1276,6 +1319,26 @@ export class City {
     frame.box(-0.9, 0, -0.02, -0.7, 2.4, 0.14, [0.78, 0.72, 0.64], 1, 63);
     frame.box(0.7, 0, -0.02, 0.9, 2.4, 0.14, [0.78, 0.72, 0.64], 1, 63);
     add(frame.toGeometry(), mats.stone, this.doors);
+
+    // the same shapes in the relief (from the wall out), for climbing hands and feet
+    const R = this.relief;
+    for (const [x, y, z, yaw] of this.windows.frames) {
+      R.addLocal(x, y, z, yaw, -0.5, -0.75, -0.02, 0.5, 0.75, 0.015); // pane
+      R.addLocal(x, y, z, yaw, -0.58, -0.8, -0.02, 0.58, -0.72, 0.08);
+      R.addLocal(x, y, z, yaw, -0.58, 0.72, -0.02, 0.58, 0.82, 0.08);
+      R.addLocal(x, y, z, yaw, -0.58, -0.72, -0.02, -0.5, 0.72, 0.08);
+      R.addLocal(x, y, z, yaw, 0.5, -0.72, -0.02, 0.58, 0.72, 0.08);
+      R.addLocal(x, y, z, yaw, -1.1, -0.72, -0.02, -0.6, 0.72, 0.05);
+      R.addLocal(x, y, z, yaw, 0.6, -0.72, -0.02, 1.1, 0.72, 0.05);
+    }
+    for (const [x, y, z, yaw] of this.windows.sills) R.addLocal(x, y, z, yaw, -0.68, -0.08, -0.02, 0.68, 0.06, 0.18);
+    for (const [x, y, z, yaw] of this.doors) {
+      R.addLocal(x, y, z, yaw, -0.7, 0, -0.03, 0.7, 2.4, 0.06);
+      R.addLocal(x, y, z, yaw, -0.9, 2.4, -0.03, 0.9, 2.7, 0.14);
+      R.addLocal(x, y, z, yaw, -0.9, 0, -0.03, -0.7, 2.4, 0.14);
+      R.addLocal(x, y, z, yaw, 0.7, 0, -0.03, 0.9, 2.4, 0.14);
+    }
+    R.build();
   }
 
   /** Top-down parchment map drawn once; HUD overlays icons on top. */

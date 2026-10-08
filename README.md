@@ -86,6 +86,7 @@ Open **Controls** from the title screen or from the pause menu (`Esc`), at any p
 - Hold **Shift** and run at a wall to run up it and start climbing. Climbing works on almost every wall. **W/A/S/D** or the arrow keys climb, **Space** does an upward leap, **S** (or Down) **+ Space** jumps off backwards, **A/D** (or Left/Right) **+ Space** leaps sideways, and **C** or **E** lets go. Climbing wraps around outer and inner corners.
 - At a ledge, press **W** (or **Space**) to pull yourself up. Running into anything about chest-high makes you vault it.
 - Sprinting off a roof edge leaps automatically to the next rooftop or beam (jumps are aim-assisted). If there's nowhere to land, you stop at the edge unless you press Space.
+- Sloped roofs are solid the way they look. You keep your pace up and down a slope, and sprinting over a ridge carries you on down the far side to the eave before the automatic leap. The cathedral's dome is round: climb its drum, then scramble up the dome to the lantern. The corner towers' pointed roofs can be climbed to the top.
 - Landing in **hay** cancels fall damage and hides you. Each synchronized viewpoint gives a **Leap of Faith** into the cart below it.
 
 ### Stealth
@@ -139,11 +140,12 @@ Ashen Runes come from chests, viewpoints, closed rifts and every third hidden Cr
 
 ## How it's made
 
-- **Engine**: [Three.js](https://threejs.org/) with custom systems: an AABB/slope collision world with a spatial hash, a kinematic character controller, a nav grid with A* and a flow field, procedural animation, and particles. Post-processing adds bloom, color grading, and the Ashen Sight x-ray pass.
+- **Engine**: [Three.js](https://threejs.org/) with custom systems: a collision world of boxes, slopes, pyramids, cylinders and domes in a spatial hash, a kinematic character controller, a nav grid with A* and a flow field, procedural animation, and particles. Post-processing adds bloom, color grading, and the Ashen Sight x-ray pass.
 - **Refresh-rate independent**: game logic runs on a fixed 60 Hz timestep and rendering interpolates between steps. Input events carry timestamps and are applied on the step in which they happened, hit-stop and slow motion are timed in real time inside the frame, and all smoothing is exponential in real time. A scripted 20-second fight simulates bit-identically at 30, 60, 144 and 240 Hz and with uneven frame pacing, both from the keyboard and through the touch controls (whose buttons and timestamped stick positions feed the same input queue).
 - **Procedural**:
   - The city: street grid, buildings with ledges and gable roofs, enterable houses with stairs and window openings, the cathedral, towers, beams and props.
   - Animation: every character is animated procedurally (gait, climbing, combat clips, recoils, death) on a small shared skeleton. Feet are planted with two-bone IK: a foot stays fixed on the ground while it carries weight, then swings to a foothold predicted from the character's velocity, so nobody glides. Footholds follow stairs and slopes, standing characters step their feet around when they turn, and the stride length matches each character's legs.
+  - Climbing: the assassin's hands and feet rest on holds on the real surface of the wall, so they don't sink into it. That includes window frames, panes, shutters, sills, cornices and ledges, read from a map of the facades' decorations. A hand grips the top edge of a ledge when one is near. Holds stay put while the body moves, and the limbs take turns to reach for the next hold, hand over hand at the pace you climb. After a leap they reach for where you land. The body hugs the wall and stands out from it only as far as a sill or cornice behind it needs. All of this is visual: climbing itself works as before.
   - Audio: Web Audio SFX and adaptive music (dark ambient, stealth tension, Doom-style metal in combat, a boss track).
 - **Generated assets ([Higgsfield](https://higgsfield.ai/))**:
   - 8 seamless material textures, a 360° hell-sky panorama (two halves) and the title key art. Normal maps, seamless tiling and the glowing-lava emissive map are derived locally by `tools/process_textures.py`.

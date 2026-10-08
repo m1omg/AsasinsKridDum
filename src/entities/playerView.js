@@ -5,6 +5,8 @@ import { CLIPS } from './clips.js';
 import { clamp, damp, dampFactor, smoothstep, angleDiff } from '../core/math.js';
 import { LAYER_XRAY } from '../render/renderer.js';
 import { humanoidFeet, gaitShape } from './footIK.js';
+import { ClimbRig } from './climbIK.js';
+import { P } from './player.js';
 
 // Renders + procedurally animates the assassin from the controller state.
 // Runs every rendered frame with (scaled) frame dt; reads interpolated state.
@@ -42,6 +44,7 @@ export class PlayerView {
     this.hbExtend = 0;
     this.renderPos = new THREE.Vector3();
     this.feet = humanoidFeet(this.model);
+    this.climb = new ClimbRig(this.model, { col: game.collision, relief: game.city?.relief || null });
     this._g = { y: 0, c: null };
     this.ground = (x, z, maxY) => game.collision.groundAt(x, z, 0.12, maxY, this._g).y;
     this.onStep = (leg, idle) => {
@@ -130,6 +133,14 @@ export class PlayerView {
       this.climbPhase += (p.climbDist - (this.lastClimbDist ?? p.climbDist)) * 4.2;
       this.lastClimbDist = p.climbDist;
       climbPose(T, this.climbPhase, w.hanging ? 1 : 0, 0);
+      // the climbing IK puts hands and feet on holds (climbIK.js); under it, a pose that keeps
+      // them off the wall while it blends in, and for a foot with no foothold
+      T.armL = [-2.9, 0, 0.22]; T.armR = [-2.9, 0, -0.22];
+      T.foreL = [-0.3, 0, 0]; T.foreR = [-0.3, 0, 0];
+      T.handL = [0.2, 0, 0]; T.handR = [0.2, 0, 0];
+      T.thighL = [-0.35, 0, 0.25]; T.thighR = [-0.35, 0, -0.25];
+      T.shinL = [0.6, 0, 0]; T.shinR = [0.6, 0, 0];
+      T.footL = [0.2, 0, 0]; T.footR = [0.2, 0, 0];
       poseRate = 16;
     } else if (st === 'mantle' || st === 'vault') {
       const tr = p.trans;
@@ -255,6 +266,8 @@ export class PlayerView {
       want: FOOT_IK.has(st) ? 1 : 0,
       ground: this.ground, narrow: p.onBeam, onStep: this.onStep,
     });
+    // hands and feet on holds on the wall while climbing, the body clear of the facade
+    this.climb.update(dt, { mesh: this.mesh, player: p, want: st === 'climb' ? 1 : 0, climbOff: P.CLIMB_OFF });
 
     // hidden blade
     this.hbExtend = damp(this.hbExtend, p.hiddenBladeOut ? 1 : 0, 25, dt);

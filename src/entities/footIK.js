@@ -28,6 +28,7 @@ const _x = new THREE.Vector3();
 const _y = new THREE.Vector3();
 const _z = new THREE.Vector3();
 const _e = new THREE.Euler();
+const _qe = new THREE.Quaternion();
 const _basis = new THREE.Matrix4();
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
@@ -69,6 +70,80 @@ function boneBasis(dir, front, out) {
   return out;
 }
 
+/**
+ * A two-bone limb of a rig (thigh-shin-foot, upper arm-forearm-hand) set up for aimLimb.
+ * restPole: the side of the limb (parent space, at rest) that the middle joint bends toward.
+ */
+export function limbChain(model, upper, lower, end, restPole = [0, 0, 1]) {
+  const B = model.bones, R = model.rest;
+  const k = R[lower].clone(), f = R[end].clone();
+  const pole = new THREE.Vector3(...restPole).normalize();
+  const restBasis = boneBasis(k, pole, new THREE.Matrix4());
+  return {
+    up: B[upper], lo: B[lower], end: B[end],
+    l1: k.length(), l2: f.length(),
+    endRest: f.clone().normalize(),
+    pole,
+    restBasisInv: restBasis.clone().invert(),
+    hinge: new THREE.Vector3().setFromMatrixColumn(restBasis, 0).normalize(), // knee / elbow axis
+  };
+}
+
+/**
+ * Two-bone IK: aim the upper bone so the lower one bends the middle joint toward the pole
+ * (parent space) and the end joint reaches the target (world), or as near as the limb allows.
+ * weight blends from the current pose. Returns false when the target sits on the root joint.
+ */
+export function aimLimb(l, target, pole, weight) {
+  const parent = l.up.parent;
+  _m.copy(parent.matrixWorld).invert();
+  _t.copy(target).applyMatrix4(_m); // end target in the parent's space (model units)
+  const o = l.up.position;
+  _n.subVectors(_t, o);
+  let d = _n.length();
+  if (d < 1e-6) return false;
+  _n.divideScalar(d);
+  const { l1, l2 } = l;
+  d = clamp(d, Math.abs(l1 - l2) * 1.02 + 1e-4, (l1 + l2) * 0.9995);
+  // middle joint direction perpendicular to the root-end line
+  _p.copy(pole).addScaledVector(_n, -pole.dot(_n));
+  if (_p.lengthSq() < 1e-8) _p.set(0, 0, 1).addScaledVector(_n, -_n.z);
+  _p.normalize();
+  const cosA = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1);
+  const sinA = Math.sqrt(1 - cosA * cosA);
+  _k.copy(_n).multiplyScalar(cosA * l1).addScaledVector(_p, sinA * l1); // middle - root
+  // upper bone: rest frame -> frame along the upper bone with its front toward the pole
+  boneBasis(_k, _p, _basis).multiply(l.restBasisInv);
+  _q.setFromRotationMatrix(_basis);
+  // lower bone: hinge about the upper bone's local x axis
+  _v.copy(_n).multiplyScalar(d).sub(_k).normalize(); // middle -> end, parent space
+  _q2.copy(_q).invert();
+  _v.applyQuaternion(_q2); // in upper-bone space
+  _x.copy(l.hinge);
+  const r = _w.copy(l.endRest).addScaledVector(_x, -l.endRest.dot(_x)).normalize();
+  const u = _z.copy(_v).addScaledVector(_x, -_v.dot(_x)).normalize();
+  const ang = Math.atan2(_y.crossVectors(r, u).dot(_x), r.dot(u));
+  _q3.setFromAxisAngle(_x, ang);
+  if (weight >= 0.999) {
+    l.up.quaternion.copy(_q);
+    l.lo.quaternion.copy(_q3);
+  } else {
+    l.up.quaternion.slerp(_q, weight);
+    l.lo.quaternion.slerp(_q3, weight);
+  }
+  l.up.updateMatrixWorld(true);
+  return true;
+}
+
+/** Turn the end bone (foot, hand) to a world orientation, blended by weight. */
+export function orientEnd(l, worldQuat, weight) {
+  l.lo.getWorldQuaternion(_q2).invert();
+  _q.copy(worldQuat).premultiply(_q2);
+  if (weight >= 0.999) l.end.quaternion.copy(_q);
+  else l.end.quaternion.slerp(_q, weight);
+  l.end.updateMatrixWorld(true);
+}
+
 export class FootPlanter {
   /**
    * model: { bones, rest } (rest = bone positions relative to their parents).
@@ -82,18 +157,9 @@ export class FootPlanter {
     const B = model.bones, R = model.rest;
     this.pelvis = B[cfg.pelvis];
     this.legs = cfg.legs.map((c) => {
-      const up = B[c.upper], lo = B[c.lower], end = B[c.end];
-      const k = R[c.lower].clone(), f = R[c.end].clone();
-      const ankle = restJoint(end, R, new THREE.Vector3());
-      const pole = new THREE.Vector3(...(c.pole || [0, 0, 1])).normalize();
-      const restBasis = boneBasis(k, pole, new THREE.Matrix4());
+      const ankle = restJoint(B[c.end], R, new THREE.Vector3());
       return {
-        up, lo, end,
-        l1: k.length(), l2: f.length(),
-        ankleRest: f.clone().normalize(),
-        pole,
-        restBasisInv: restBasis.clone().invert(),
-        hinge: new THREE.Vector3().setFromMatrixColumn(restBasis, 0).normalize(), // knee axis
+        ...limbChain(model, c.upper, c.lower, c.end, c.pole || [0, 0, 1]),
         offset: c.offset || 0,
         // where the foot rests under the body (model space, on the ground)
         home: new THREE.Vector3(ankle.x * (cfg.width ?? 1), 0, ankle.z),
@@ -277,53 +343,11 @@ export class FootPlanter {
     this.drop = 0;
   }
 
-  /** Two-bone IK: aim the upper bone so the lower one bends the knee toward the pole. */
+  /** Two-bone IK onto the leg's ankle target, then the foot level (or rolled onto the toes), facing its own yaw. */
   solve(l, weight) {
-    const parent = l.up.parent;
-    _m.copy(parent.matrixWorld).invert();
-    _t.copy(l.pos).applyMatrix4(_m); // ankle target in the parent's space (model units)
-    const o = l.up.position;
-    _n.subVectors(_t, o);
-    let d = _n.length();
-    if (d < 1e-6) return;
-    _n.divideScalar(d);
-    const { l1, l2 } = l;
-    d = clamp(d, Math.abs(l1 - l2) * 1.02 + 1e-4, (l1 + l2) * 0.9995);
-    // knee direction perpendicular to the hip-ankle line
-    _p.copy(l.pole).addScaledVector(_n, -l.pole.dot(_n));
-    if (_p.lengthSq() < 1e-8) _p.set(0, 0, 1).addScaledVector(_n, -_n.z);
-    _p.normalize();
-    const cosA = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1);
-    const sinA = Math.sqrt(1 - cosA * cosA);
-    _k.copy(_n).multiplyScalar(cosA * l1).addScaledVector(_p, sinA * l1); // knee - hip
-    // upper bone: rest frame -> frame along the thigh with its front toward the knee pole
-    boneBasis(_k, _p, _basis).multiply(l.restBasisInv);
-    _q.setFromRotationMatrix(_basis);
-    // lower bone: hinge about the upper bone's local x axis
-    _v.copy(_n).multiplyScalar(d).sub(_k).normalize(); // knee -> ankle, parent space
-    _q2.copy(_q).invert();
-    _v.applyQuaternion(_q2); // in upper-bone space
-    _x.copy(l.hinge);
-    const r = _w.copy(l.ankleRest).addScaledVector(_x, -l.ankleRest.dot(_x)).normalize();
-    const u = _z.copy(_v).addScaledVector(_x, -_v.dot(_x)).normalize();
-    const ang = Math.atan2(_y.crossVectors(r, u).dot(_x), r.dot(u));
-    _q3.setFromAxisAngle(_x, ang);
-    if (weight >= 0.999) {
-      l.up.quaternion.copy(_q);
-      l.lo.quaternion.copy(_q3);
-    } else {
-      l.up.quaternion.slerp(_q, weight);
-      l.lo.quaternion.slerp(_q3, weight);
-    }
-    l.up.updateMatrixWorld(true);
-    // foot: level (or rolled onto the toes), facing its own yaw
-    l.lo.getWorldQuaternion(_q2).invert();
+    if (!aimLimb(l, l.pos, l.pole, weight)) return;
     _e.set(l.pitch, l.yaw, 0, 'YXZ');
-    _q.setFromEuler(_e);
-    _q.premultiply(_q2);
-    if (weight >= 0.999) l.end.quaternion.copy(_q);
-    else l.end.quaternion.slerp(_q, weight);
-    l.end.updateMatrixWorld(true);
+    orientEnd(l, _qe.setFromEuler(_e), weight);
   }
 }
 
