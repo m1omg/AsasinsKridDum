@@ -80,6 +80,7 @@ export class City {
     this.doors = [];
     this.reserved = [];
     this.relief = new ReliefMap(); // decorations standing out of the walls (climbing hands and feet rest on them)
+    this.cornices = []; // drawn once every building stands (drawCornices)
   }
 
   // -------------------------------------------------------------- helpers
@@ -186,6 +187,7 @@ export class City {
       const sgn = alongX ? (z0 < 0 ? 1 : -1) : (x0 < 0 ? 1 : -1);
       const a0 = alongX ? x0 : z0, a1 = alongX ? x1 : z1;
       for (let a = a0 + 0.6; a < a1 - 0.6; a += 2.2) {
+        if (a + 1.2 <= -(W1 - 8) + 1e-6 || a >= W1 - 8 - 1e-6) continue; // inside a corner tower (one face flush with its face)
         if (alongX) this.block('stone', stoneC, a, WALL_H, Math.min(outer, outer + sgn * 0.9), a + 1.2, WALL_H + 1.1, Math.max(outer, outer + sgn * 0.9), { collide: false, faces: 55 });
         else this.block('stone', stoneC, Math.min(outer, outer + sgn * 0.9), WALL_H, a, Math.max(outer, outer + sgn * 0.9), WALL_H + 1.1, a + 1.2, { collide: false, faces: 55 });
       }
@@ -378,7 +380,13 @@ export class City {
       const axis = opts.ridge || (w >= d ? 'x' : 'z');
       const span = axis === 'x' ? d : w;
       const R = clamp(span * 0.24, 1.2, 3.2);
-      this.B('roof', cx, cz).gableRoof(x0, z0, x1, z1, H, H + R, axis, jitterColor(rng, [1, 0.95, 0.92], 0.12), 2.6, 0.35, 0.16, this.B('plaster', cx, cz), color);
+      // the roof overhangs the street only: against a neighbour it would overlap that one's roof or wall
+      // in the same plane, and the two would flicker. Its edge stands well clear of the cornice under it.
+      const o = 0.4, e = exposed;
+      const sides = axis === 'x'
+        ? { endLo: e & 2 ? o : 0, endHi: e & 1 ? o : 0, eaveLo: e & 32 ? o : 0, eaveHi: e & 16 ? o : 0 }
+        : { endLo: e & 32 ? o : 0, endHi: e & 16 ? o : 0, eaveLo: e & 2 ? o : 0, eaveHi: e & 1 ? o : 0 };
+      this.B('roof', cx, cz).gableRoof(x0, z0, x1, z1, H, H + R, axis, jitterColor(rng, [1, 0.95, 0.92], 0.12), 2.6, o, 0.16, this.B('plaster', cx, cz), color, sides);
       this.addRoofColliders(x0, z0, x1, z1, H, R, axis);
       b.top = H + R;
       b.ridge = axis;
@@ -422,12 +430,52 @@ export class City {
   }
 
   cornice(x0, z0, x1, z1, y, h, out, exposed, cx, cz) {
+    const C = this.cornices, R = this.relief;
+    const xa = x0 - (exposed & 2 ? out : 0), xb = x1 + (exposed & 1 ? out : 0);
+    if (exposed & 16) { C.push([xa, y, z1, xb, y + h, z1 + out, 4 | 8 | 16 | 1 | 2, 'x', cx, cz]); R.add(xa, y, z1, xb, y + h, z1 + out); }
+    if (exposed & 32) { C.push([xa, y, z0 - out, xb, y + h, z0, 4 | 8 | 32 | 1 | 2, 'x', cx, cz]); R.add(xa, y, z0 - out, xb, y + h, z0); }
+    if (exposed & 1) { C.push([x1, y, z0, x1 + out, y + h, z1, 4 | 8 | 1, 'z', cx, cz]); R.add(x1, y, z0, x1 + out, y + h, z1); }
+    if (exposed & 2) { C.push([x0 - out, y, z0, x0, y + h, z1, 4 | 8 | 2, 'z', cx, cz]); R.add(x0 - out, y, z0, x0, y + h, z1); }
+  }
+
+  /**
+   * The cornices, drawn when every building stands: where a face counted as exposed is against a
+   * neighbour after all, the stretch inside that one is left out (its top would lie a little under
+   * the neighbour's roof and flicker against it).
+   */
+  drawCornices() {
     const c = [0.78, 0.72, 0.64];
-    const B = this.B('stone', cx, cz), R = this.relief;
-    if (exposed & 16) { B.box(x0 - (exposed & 2 ? out : 0), y, z1, x1 + (exposed & 1 ? out : 0), y + h, z1 + out, c, 2, 4 | 8 | 16 | 1 | 2); R.add(x0 - (exposed & 2 ? out : 0), y, z1, x1 + (exposed & 1 ? out : 0), y + h, z1 + out); }
-    if (exposed & 32) { B.box(x0 - (exposed & 2 ? out : 0), y, z0 - out, x1 + (exposed & 1 ? out : 0), y + h, z0, c, 2, 4 | 8 | 32 | 1 | 2); R.add(x0 - (exposed & 2 ? out : 0), y, z0 - out, x1 + (exposed & 1 ? out : 0), y + h, z0); }
-    if (exposed & 1) { B.box(x1, y, z0, x1 + out, y + h, z1, c, 2, 4 | 8 | 1); R.add(x1, y, z0, x1 + out, y + h, z1); }
-    if (exposed & 2) { B.box(x0 - out, y, z0, x0, y + h, z1, c, 2, 4 | 8 | 2); R.add(x0 - out, y, z0, x0, y + h, z1); }
+    for (const [x0, y0, z0, x1, y1, z1, faces, axis, cx, cz] of this.cornices) {
+      const B = this.B('stone', cx, cz);
+      if (axis === 'x') {
+        for (const [p, q, cutLo, cutHi] of this.openSpans(x0, x1, 'x', z0, z1, y1)) B.box(p, y0, z0, q, y1, z1, c, 2, faces & ~(cutHi ? 1 : 0) & ~(cutLo ? 2 : 0));
+      } else {
+        for (const [p, q] of this.openSpans(z0, z1, 'z', x0, x1, y1)) B.box(x0, y0, p, x1, y1, q, c, 2, faces);
+      }
+    }
+  }
+
+  /**
+   * The stretches of [a0, a1] along `axis` (at [c0, c1] across) that are not inside a building
+   * reaching up to `top` (an enterable house is hollow: only its walls, which carry its parapet).
+   * [from, to, cutLo, cutHi]; an end is cut where it meets such a building's wall.
+   */
+  openSpans(a0, a1, axis, c0, c1, top) {
+    let spans = [[a0, a1, false, false]];
+    const cut = (s0, s1) => {
+      spans = spans.flatMap(([p, q, lo, hi]) => (s1 <= p || s0 >= q ? [[p, q, lo, hi]] : [[p, s0, lo, true], [s1, q, true, hi]].filter(([u, v]) => v - u > 0.01)));
+    };
+    for (const b of this.buildings) {
+      const [lo, hi, s0, s1] = axis === 'x' ? [b.z0, b.z1, b.x0, b.x1] : [b.x0, b.x1, b.z0, b.z1];
+      if (lo > c0 || hi < c1) continue;
+      if (!b.enterable) {
+        if (b.H >= top) cut(s0, s1);
+      } else if (b.wallTop >= top) {
+        if (c1 <= lo + b.wall || c0 >= hi - b.wall) cut(s0, s1); // along one of its walls
+        else { cut(s0, s0 + b.wall); cut(s1 - b.wall, s1); } // across it
+      }
+    }
+    return spans;
   }
 
   /** Windows (instanced) on exposed faces, doors on the ground floor. */
@@ -512,7 +560,9 @@ export class City {
       z0 = a - w / 2; z1 = a + w / 2;
       if (bit === 1) { x0 = b.x1; x1 = b.x1 + dep; } else { x0 = b.x0 - dep; x1 = b.x0; }
     }
-    this.block('stone', [0.75, 0.7, 0.62], x0, y - 0.2, z0, x1, y, z1, { kind: 'balcony', faces: 63 });
+    // no face against the wall: it can't be seen, and where a neighbour adjoins, it lies in that one's wall
+    const back = { 16: 32, 32: 16, 1: 2, 2: 1 }[bit];
+    this.block('stone', [0.75, 0.7, 0.62], x0, y - 0.2, z0, x1, y, z1, { kind: 'balcony', faces: 63 & ~back });
     // iron railing (visual) + low collider
     const rc = [0.25, 0.22, 0.2];
     const R = this.B('metal', (x0 + x1) / 2, (z0 + z1) / 2);
@@ -666,7 +716,7 @@ export class City {
     const [chx, chz] = stairAxis === 'x' ? [x1 - t - 0.8, lerp(crossLo, crossHi, 0.5)] : [lerp(crossLo, crossHi, 0.5), z1 - t - 0.8];
     this.chests.push({ x: chx, y: (floors - 1) * FH, z: chz, yaw: stairAxis === 'x' ? -Math.PI / 2 : Math.PI, where: 'house' });
 
-    const b = { x0, z0, x1, z1, H, floors, roof: 'flat', color, exposed, top: H, enterable: true };
+    const b = { x0, z0, x1, z1, H, floors, roof: 'flat', color, exposed, top: H, enterable: true, wall: t, wallTop: H + ph };
     this.buildings.push(b);
     this.interiors.push({ ...lot, floors, door: { face: doorBit, a: doorA } });
     this.facadeDetails(b, true, winMarks);
@@ -876,7 +926,10 @@ export class City {
     const beamLen = 2.6;
     const pz0 = def.dir > 0 ? z1 - 0.3 : z0 - beamLen;
     const pz1 = def.dir > 0 ? z1 + beamLen : z0 + 0.3;
-    this.block('wood', [0.55, 0.42, 0.3], x - 0.18, h + ph - 0.3, pz0, x + 0.18, h + ph, pz1, { kind: 'beam', climbable: false, uv: 1.5, faces: 63 });
+    // drawn from the parapet's outer face: across the parapet its top would lie in the parapet's top and flicker
+    const vz0 = def.dir > 0 ? z1 : pz0, vz1 = def.dir > 0 ? pz1 : z0;
+    this.B('wood', x, (vz0 + vz1) / 2).box(x - 0.18, h + ph - 0.3, vz0, x + 0.18, h + ph, vz1, [0.55, 0.42, 0.3], 1.5, 63);
+    this.solid(x - 0.18, h + ph - 0.3, pz0, x + 0.18, h + ph, pz1, { kind: 'beam', climbable: false });
     const perch = { x, y: h + ph, z: def.dir > 0 ? z1 + beamLen - 0.35 : z0 - beamLen + 0.35 };
     // hay cart for the leap of faith
     const hay = this.makeHay(x, def.dir > 0 ? z1 + 5 : z0 - 5, Math.PI / 2);
@@ -934,12 +987,18 @@ export class City {
     // nave (runs north-south), facade faces south at z = -6
     const naveH = 22;
     this.block('stone', marble, -10, 0, -36, 10, naveH, -6, { kind: 'cathedral', uv: 3 });
-    this.B('roof', 0, -21).gableRoof(-10, -36, 10, -6, naveH, naveH + 6, 'z', WHITE, 3, 0.4, 0.2, this.B('stone', 0, -21), marble);
+    // (its front end stops at the facade, which covers its gable)
+    this.B('roof', 0, -21).gableRoof(-10, -36, 10, -6, naveH, naveH + 6, 'z', WHITE, 3, 0.4, 0.2, this.B('stone', 0, -21), marble, { endHi: 0, gableHi: false });
     this.addRoofColliders(-10, -36, 10, -6, naveH, 6, 'z');
     // aisles
     for (const sx of [-1, 1]) {
       const ax0 = sx < 0 ? -16 : 10, ax1 = sx < 0 ? -10 : 16;
-      this.block('stone', green, ax0, 0, -33, ax1, 13, -8, { kind: 'cathedral', uv: 3 });
+      // the campanile stands into the east aisle, their fronts in one plane: that aisle's front stops at it
+      const camp = TOWER_DEFS.find((d) => d.campanile);
+      const cut = camp.x - camp.size / 2;
+      const hidden = ax1 > cut && ax0 < cut;
+      this.block('stone', green, ax0, 0, -33, ax1, 13, -8, { kind: 'cathedral', uv: 3, faces: hidden ? 55 & ~16 : 55 });
+      if (hidden) this.B('stone', (ax0 + cut) / 2, -8).box(ax0, 0, -33, cut, 13, -8, green, 3, 16);
       // lean-to roof rising toward the nave
       const slope = sx < 0 ? { axis: 'x', y0: 13, y1: 16 } : { axis: 'x', y0: 16, y1: 13 };
       this.solid(ax0, 13, -33, ax1, 16, -8, { kind: 'roof', slope });
@@ -1024,7 +1083,11 @@ export class City {
       this.block('stone', [0.82, 0.78, 0.72], -14, 0, z0, 14, 0.9 - k * 0.3, z0 + 1.0, { kind: 'steps', uv: 2 });
     }
     // facade side pilasters
-    for (const px of [-11.5, -5.2, 5.2, 11.5]) this.block('stone', [0.55, 0.62, 0.56], px - 0.5, 0, -6.2, px + 0.5, 26, -5.6, { kind: 'pilaster', uv: 2 });
+    for (const px of [-11.5, -5.2, 5.2, 11.5]) {
+      // drawn from the facade's front: the corner ones' backs, inside it, share its side faces
+      this.B('stone', px, -6).box(px - 0.5, 0, -6, px + 0.5, 26, -5.6, [0.55, 0.62, 0.56], 2, 1 | 2 | 4 | 16);
+      this.solid(px - 0.5, 0, -6.2, px + 0.5, 26, -5.6, { kind: 'pilaster', uv: 2 });
+    }
     this.footprints.push({ x0: -10, z0: -36, x1: 10, z1: -6, h: naveH + 6, kind: 'cathedral' });
     this.footprints.push({ x0: -21, z0: -29, x1: 21, z1: -17, h: naveH + 5, kind: 'cathedral' });
     this.footprints.push({ x0: -16, z0: -33, x1: 16, z1: -8, h: 13, kind: 'cathedral' });
@@ -1034,7 +1097,9 @@ export class City {
     for (let zc = lz0; zc <= lz1 + 0.01; zc += 3.25) {
       this.block('stone', marble, lx1 - 0.7, 0, zc - 0.35, lx1, 6, zc + 0.35, { kind: 'column', uv: 2 });
     }
-    this.block('stone', marble, lx0, 0, lz0 - 0.35, lx1, 6, lz1 + 0.35, { kind: 'building', uv: 3, collide: false, faces: 2 | 16 | 32 });
+    // back wall, and end walls whose faces stop at the end columns (which stand flush with them)
+    this.B('stone', (lx0 + lx1) / 2, (lz0 + lz1) / 2).box(lx0, 0, lz0 - 0.35, lx1, 6, lz1 + 0.35, marble, 3, 2);
+    this.B('stone', (lx0 + lx1) / 2, (lz0 + lz1) / 2).box(lx0, 0, lz0 - 0.35, lx1 - 0.7, 6, lz1 + 0.35, marble, 3, 16 | 32);
     this.solid(lx0, 0, lz0 - 0.35, lx0 + 0.6, 6, lz1 + 0.35, { kind: 'building' });
     this.block('stone', marble, lx0, 6, lz0 - 0.35, lx1, 7.2, lz1 + 0.35, { kind: 'building', uv: 3 });
     this.B('roof', -31.5, 17).gableRoof(lx0, lz0 - 0.35, lx1, lz1 + 0.35, 7.2, 9.0, 'z', WHITE, 2.6, 0.4, 0.16, this.B('stone', -31.5, 17), marble);
@@ -1182,8 +1247,21 @@ export class City {
   beam(ax, y, az, bx, by, bz, axis) {
     const w = 0.32;
     const c = [0.5, 0.38, 0.28];
-    if (axis === 'x') this.block('wood', c, ax, y - 0.28, az - w / 2, bx, y, az + w / 2, { kind: 'beam', climbable: false, uv: 1.5, faces: 63, blocksSight: false, blocksCamera: false });
-    else this.block('wood', c, ax - w / 2, y - 0.28, az, ax + w / 2, y, bz, { kind: 'beam', climbable: false, uv: 1.5, faces: 63, blocksSight: false, blocksCamera: false });
+    const opts = { kind: 'beam', climbable: false, blocksSight: false, blocksCamera: false };
+    if (axis === 'x') this.solid(ax, y - 0.28, az - w / 2, bx, y, az + w / 2, opts);
+    else this.solid(ax - w / 2, y - 0.28, az, ax + w / 2, y, bz, opts);
+    // drawn only where it is in the open: inside a building that reaches its top (its ends, or one
+    // standing in the gap) it can't be seen, and where that building's roof is at the beam's height
+    // the two tops would lie in one plane and flicker
+    if (axis === 'x') {
+      for (const [p, q, cutLo, cutHi] of this.openSpans(ax, bx, 'x', az - w / 2, az + w / 2, y)) {
+        this.B('wood', (p + q) / 2, az).box(p, y - 0.28, az - w / 2, q, y, az + w / 2, c, 1.5, 63 & ~(cutHi ? 1 : 0) & ~(cutLo ? 2 : 0));
+      }
+    } else {
+      for (const [p, q, cutLo, cutHi] of this.openSpans(az, bz, 'z', ax - w / 2, ax + w / 2, y)) {
+        this.B('wood', ax, (p + q) / 2).box(ax - w / 2, y - 0.28, p, ax + w / 2, y, q, c, 1.5, 63 & ~(cutHi ? 16 : 0) & ~(cutLo ? 32 : 0));
+      }
+    }
     // rope/lantern sometimes
     void by;
   }
@@ -1253,6 +1331,7 @@ export class City {
 
   // -------------------------------------------------------------- finalize
   finalize() {
+    this.drawCornices();
     this.meshes = this.cb.build(this.mats, this.group);
     this.buildInstanced();
     this.nav = new NavGrid(-CITY_HALF, -CITY_HALF, CITY_HALF * 2, 1);

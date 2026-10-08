@@ -62,42 +62,50 @@ export class MeshBuilder {
    * Gable roof: ridge along `axis` ('x' or 'z'), eaves at height y0, ridge at y1.
    * Includes the two triangular gable ends (wall material is separate: pass
    * gableBuilder to put them elsewhere).
+   * sides (optional): the overhang on each side in metres, { endLo, endHi } at the gable ends
+   * (x0 / x1 for a ridge along x, z0 / z1 along z) and { eaveLo, eaveHi } at the eaves, each
+   * `overhang` by default; and { gableLo, gableHi }: false leaves out that gable triangle. A side
+   * against another building gets no overhang, so the two roofs meet instead of overlapping.
    */
-  gableRoof(x0, z0, x1, z1, y0, y1, axis, c, s = 3, overhang = 0.35, thick = 0.18, gableBuilder = null, gableColor = null) {
+  gableRoof(x0, z0, x1, z1, y0, y1, axis, c, s = 3, overhang = 0.35, thick = 0.18, gableBuilder = null, gableColor = null, sides = null) {
     const gb = gableBuilder || this;
     const gc = gableColor || c;
+    const o = overhang;
+    const endLo = sides?.endLo ?? o, endHi = sides?.endHi ?? o, eaveLo = sides?.eaveLo ?? o, eaveHi = sides?.eaveHi ?? o;
+    const R = y1 - y0;
     if (axis === 'x') {
-      const zm = (z0 + z1) / 2;
-      const half = (z1 - z0) / 2 + overhang;
-      const run = Math.hypot(half, y1 - y0);
-      const drop = (y1 - y0) * overhang / ((z1 - z0) / 2);
-      const ex0 = x0 - overhang, ex1 = x1 + overhang;
-      const ny = half / run, nz = (y1 - y0) / run;
-      const ey = y0 - drop;
+      const zm = (z0 + z1) / 2, halfN = (z1 - z0) / 2;
+      const half = halfN + o;
+      const run = Math.hypot(half, R);
+      const ny = half / run, nz = R / run;
+      const ex0 = x0 - endLo, ex1 = x1 + endHi;
+      // an eave cut back from the full overhang starts that far up the texture
+      const vS = (run / s) * (1 - (halfN + eaveHi) / half), vN = (run / s) * (1 - (halfN + eaveLo) / half);
+      const eyS = y0 - (R * eaveHi) / halfN, eyN = y0 - (R * eaveLo) / halfN;
       // south slope (+z)
-      this.quad([ex0, ey, z1 + overhang], [ex1, ey, z1 + overhang], [ex1, y1, zm], [ex0, y1, zm], [0, ny, nz], [ex0 / s, 0, ex1 / s, 0, ex1 / s, run / s, ex0 / s, run / s], c);
+      this.quad([ex0, eyS, z1 + eaveHi], [ex1, eyS, z1 + eaveHi], [ex1, y1, zm], [ex0, y1, zm], [0, ny, nz], [ex0 / s, vS, ex1 / s, vS, ex1 / s, run / s, ex0 / s, run / s], c);
       // north slope (-z)
-      this.quad([ex1, ey, z0 - overhang], [ex0, ey, z0 - overhang], [ex0, y1, zm], [ex1, y1, zm], [0, ny, -nz], [ex1 / s, 0, ex0 / s, 0, ex0 / s, run / s, ex1 / s, run / s], c);
-      // underside / edge thickness
-      this.quad([ex0, ey - thick, z1 + overhang], [ex1, ey - thick, z1 + overhang], [ex1, ey, z1 + overhang], [ex0, ey, z1 + overhang], [0, 0, 1], [0, 0, 1, 0, 1, 0.05, 0, 0.05], c);
-      this.quad([ex1, ey - thick, z0 - overhang], [ex0, ey - thick, z0 - overhang], [ex0, ey, z0 - overhang], [ex1, ey, z0 - overhang], [0, 0, -1], [0, 0, 1, 0, 1, 0.05, 0, 0.05], c);
+      this.quad([ex1, eyN, z0 - eaveLo], [ex0, eyN, z0 - eaveLo], [ex0, y1, zm], [ex1, y1, zm], [0, ny, -nz], [ex1 / s, vN, ex0 / s, vN, ex0 / s, run / s, ex1 / s, run / s], c);
+      // underside / edge thickness (where the roof overhangs)
+      if (eaveHi > 0) this.quad([ex0, eyS - thick, z1 + eaveHi], [ex1, eyS - thick, z1 + eaveHi], [ex1, eyS, z1 + eaveHi], [ex0, eyS, z1 + eaveHi], [0, 0, 1], [0, 0, 1, 0, 1, 0.05, 0, 0.05], c);
+      if (eaveLo > 0) this.quad([ex1, eyN - thick, z0 - eaveLo], [ex0, eyN - thick, z0 - eaveLo], [ex0, eyN, z0 - eaveLo], [ex1, eyN, z0 - eaveLo], [0, 0, -1], [0, 0, 1, 0, 1, 0.05, 0, 0.05], c);
       // gable triangles
-      gb.tri([x1, y0, z1], [x1, y0, z0], [x1, y1, zm], [1, 0, 0], [-z1 / 4, y0 / 4, -z0 / 4, y0 / 4, -zm / 4, y1 / 4], gc);
-      gb.tri([x0, y0, z0], [x0, y0, z1], [x0, y1, zm], [-1, 0, 0], [z0 / 4, y0 / 4, z1 / 4, y0 / 4, zm / 4, y1 / 4], gc);
+      if (sides?.gableHi !== false) gb.tri([x1, y0, z1], [x1, y0, z0], [x1, y1, zm], [1, 0, 0], [-z1 / 4, y0 / 4, -z0 / 4, y0 / 4, -zm / 4, y1 / 4], gc);
+      if (sides?.gableLo !== false) gb.tri([x0, y0, z0], [x0, y0, z1], [x0, y1, zm], [-1, 0, 0], [z0 / 4, y0 / 4, z1 / 4, y0 / 4, zm / 4, y1 / 4], gc);
     } else {
-      const xm = (x0 + x1) / 2;
-      const half = (x1 - x0) / 2 + overhang;
-      const run = Math.hypot(half, y1 - y0);
-      const drop = (y1 - y0) * overhang / ((x1 - x0) / 2);
-      const ez0 = z0 - overhang, ez1 = z1 + overhang;
-      const ny = half / run, nx = (y1 - y0) / run;
-      const ey = y0 - drop;
-      this.quad([x1 + overhang, ey, ez1], [x1 + overhang, ey, ez0], [xm, y1, ez0], [xm, y1, ez1], [nx, ny, 0], [ez1 / s, 0, ez0 / s, 0, ez0 / s, run / s, ez1 / s, run / s], c);
-      this.quad([x0 - overhang, ey, ez0], [x0 - overhang, ey, ez1], [xm, y1, ez1], [xm, y1, ez0], [-nx, ny, 0], [ez0 / s, 0, ez1 / s, 0, ez1 / s, run / s, ez0 / s, run / s], c);
-      this.quad([x1 + overhang, ey - thick, ez1], [x1 + overhang, ey - thick, ez0], [x1 + overhang, ey, ez0], [x1 + overhang, ey, ez1], [1, 0, 0], [0, 0, 1, 0, 1, 0.05, 0, 0.05], c);
-      this.quad([x0 - overhang, ey - thick, ez0], [x0 - overhang, ey - thick, ez1], [x0 - overhang, ey, ez1], [x0 - overhang, ey, ez0], [-1, 0, 0], [0, 0, 1, 0, 1, 0.05, 0, 0.05], c);
-      gb.tri([x0, y0, z1], [x1, y0, z1], [xm, y1, z1], [0, 0, 1], [x0 / 4, y0 / 4, x1 / 4, y0 / 4, xm / 4, y1 / 4], gc);
-      gb.tri([x1, y0, z0], [x0, y0, z0], [xm, y1, z0], [0, 0, -1], [-x1 / 4, y0 / 4, -x0 / 4, y0 / 4, -xm / 4, y1 / 4], gc);
+      const xm = (x0 + x1) / 2, halfN = (x1 - x0) / 2;
+      const half = halfN + o;
+      const run = Math.hypot(half, R);
+      const ny = half / run, nx = R / run;
+      const ez0 = z0 - endLo, ez1 = z1 + endHi;
+      const vE = (run / s) * (1 - (halfN + eaveHi) / half), vW = (run / s) * (1 - (halfN + eaveLo) / half);
+      const eyE = y0 - (R * eaveHi) / halfN, eyW = y0 - (R * eaveLo) / halfN;
+      this.quad([x1 + eaveHi, eyE, ez1], [x1 + eaveHi, eyE, ez0], [xm, y1, ez0], [xm, y1, ez1], [nx, ny, 0], [ez1 / s, vE, ez0 / s, vE, ez0 / s, run / s, ez1 / s, run / s], c);
+      this.quad([x0 - eaveLo, eyW, ez0], [x0 - eaveLo, eyW, ez1], [xm, y1, ez1], [xm, y1, ez0], [-nx, ny, 0], [ez0 / s, vW, ez1 / s, vW, ez1 / s, run / s, ez0 / s, run / s], c);
+      if (eaveHi > 0) this.quad([x1 + eaveHi, eyE - thick, ez1], [x1 + eaveHi, eyE - thick, ez0], [x1 + eaveHi, eyE, ez0], [x1 + eaveHi, eyE, ez1], [1, 0, 0], [0, 0, 1, 0, 1, 0.05, 0, 0.05], c);
+      if (eaveLo > 0) this.quad([x0 - eaveLo, eyW - thick, ez0], [x0 - eaveLo, eyW - thick, ez1], [x0 - eaveLo, eyW, ez1], [x0 - eaveLo, eyW, ez0], [-1, 0, 0], [0, 0, 1, 0, 1, 0.05, 0, 0.05], c);
+      if (sides?.gableHi !== false) gb.tri([x0, y0, z1], [x1, y0, z1], [xm, y1, z1], [0, 0, 1], [x0 / 4, y0 / 4, x1 / 4, y0 / 4, xm / 4, y1 / 4], gc);
+      if (sides?.gableLo !== false) gb.tri([x1, y0, z0], [x0, y0, z0], [xm, y1, z0], [0, 0, -1], [-x1 / 4, y0 / 4, -x0 / 4, y0 / 4, -xm / 4, y1 / 4], gc);
     }
   }
 
