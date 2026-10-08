@@ -75,8 +75,8 @@ export class ThirdPersonCamera {
       const ty = Math.atan2(o.lockPos.x - focus.x, o.lockPos.z - focus.z);
       if (this.t - this.lastLookInput > 0.25) this.yaw = dampAngle(this.yaw, ty, 4.5, dt);
       this.pitch = damp(this.pitch, clamp(this.pitch, 0.05, 0.45), 3, dt);
-    } else if (o.follow && pad.connected && this.t - this.lastLookInput > 2.0) {
-      // gentle auto-follow for gamepads
+    } else if (o.follow && (pad.connected || input.touchActive) && this.t - this.lastLookInput > 2.0) {
+      // gentle auto-follow for gamepads and the touch stick
       this.yaw = dampAngle(this.yaw, o.follow, 0.8, dt);
     }
 

@@ -3,11 +3,12 @@ import { SIGILS } from '../entities/playerCombat.js';
 import { TITLE_URL } from '../render/textures.js';
 import { clamp } from '../core/math.js';
 import { DEFAULT_SLOTS, RESERVED, PAD_SLOT, isPadCode, keyLabel } from '../core/input.js';
+import { touchCapable, touchFirst, fullscreenAvailable, isFullscreen } from './touch.js';
 
 // DOM HUD + menus. HUD values update every rendered frame (cheap writes only
 // when values change); markers are pooled absolutely-positioned elements.
 
-const ICONS = {
+export const ICONS = {
   pyre: '<svg viewBox="0 0 24 24"><path fill="#ff8a3a" d="M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-5 3-6 0 3 1 4 2 4 0-4-1-6 1-10z"/></svg>',
   gust: '<svg viewBox="0 0 24 24" fill="none" stroke="#a8d4ff" stroke-width="2.2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3"/><path d="M3 13h16a3 3 0 1 1-3 3"/><path d="M3 18h8"/></svg>',
   aegis: '<svg viewBox="0 0 24 24"><path fill="none" stroke="#ffd36a" stroke-width="2.2" d="M12 2l8 4.5v11L12 22l-8-4.5v-11z"/><circle cx="12" cy="12" r="3" fill="#ffd36a"/></svg>',
@@ -98,6 +99,10 @@ const SETTINGS = [
   { k: 'shake', label: 'Camera shake', options: [[true, 'On'], [false, 'Off']] },
   { k: 'dmgNumbers', label: 'Damage numbers', options: [[true, 'On'], [false, 'Off']] },
   { k: 'fps', label: 'Show FPS', options: [[false, 'Off'], [true, 'On']] },
+  // shown on touch screens only
+  { k: 'touch', label: 'Touch controls', options: [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']], touch: true },
+  { k: 'touchSens', label: 'Touch look speed', min: 0.3, max: 3, step: 0.1, fmt: (v) => v.toFixed(1), touch: true },
+  { k: 'touchSize', label: 'Touch button size', options: [[0.85, 'Small'], [1, 'Medium'], [1.15, 'Large']], touch: true },
 ];
 
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -179,8 +184,9 @@ export class UI {
       <button class="btn" data-act="new">New Game</button>
       <button class="btn" data-act="controls">Controls</button>
       <button class="btn" data-act="settings">Settings</button>
+      <button class="btn" data-act="fullscreen" hidden>Full screen</button>
     </div>
-    <div class="device-note" hidden>Hellcreed needs a keyboard and mouse, or a gamepad. Touch controls aren't supported.</div>
+    <div class="device-note" hidden>On a phone or tablet, your left thumb moves, dragging on the right looks around, and the buttons on the right fight. Turn the screen sideways for the best view.</div>
   </div>
   <div class="credit">Textures, sky &amp; key art generated with Higgsfield · Built with Three.js</div>
 </div>
@@ -202,6 +208,7 @@ export class UI {
     <button class="btn" data-act="upgrades">The Creed (Upgrades)</button>
     <button class="btn" data-act="controls">Controls</button>
     <button class="btn" data-act="settings">Settings</button>
+    <button class="btn" data-act="fullscreen" hidden>Full screen</button>
     <button class="btn" data-act="title">Quit to Title</button>
   </div>
 </div></div>
@@ -231,6 +238,18 @@ export class UI {
     <p class="bind-status" role="status" aria-live="polite"></p>
   </div>
   <div class="bind-scroll">
+    <div class="touch-guide">
+      <h3>Touch controls</h3>
+      <ul>
+        <li>Put your left thumb down anywhere in the lower left to move: the stick appears under it. Drag anywhere else on the screen to look around.</li>
+        <li><b>Sprint</b> and <b>Sneak</b> switch on and off with a tap; sprinting stops when you stop moving. <b>Tonic</b> drinks a Blood Tonic.</li>
+        <li><b>Attack</b>, <b>Heavy</b> (hold it for Rend), <b>Block</b> (hold it, or tap it just before a strike lands to parry), <b>Dodge</b>, and <b>Jump</b> to climb and leap, or roll in a fight.</li>
+        <li><b>Interact</b> lights up and names what it will do: assassinate, Glory Kill, open a chest, hide, synchronize. Tapping the prompt in the middle of the screen does the same.</li>
+        <li><b>Sigil</b> casts the chosen Sigil; tap a Sigil icon at the top left to choose another. <b>Crossbow</b> shoots, and <b>Lock</b> locks on to a demon (tap it again to switch).</li>
+        <li><b>Sight</b> switches Ashen Sight on and off. Tap the minimap for the map, and the emblem at the top left to pause. Look speed, button size and whether the touch controls show are in Settings.</li>
+      </ul>
+      <h3>Keyboard and gamepad</h3>
+    </div>
     <div class="binds">${this.bindsTemplate()}</div>
     <h3>How to play</h3>
     <div class="howto"></div>
@@ -253,7 +272,7 @@ export class UI {
   <h2>Settings</h2>
   <p class="opt-help">Up and down pick a setting; left and right change it. You can also click the arrows.</p>
   <div class="sep"></div>
-  ${SETTINGS.map((o, i) => `<div class="settings-row"><span id="set-${o.k}">${o.label}</span><button class="btn opt" data-act="opt" data-k="${o.k}" data-r="${i}" data-c="0" aria-describedby="set-${o.k}"><span class="arw" data-d="-1" aria-hidden="true">&#9664;</span><span class="v"></span><span class="arw" data-d="1" aria-hidden="true">&#9654;</span></button></div>`).join('')}
+  ${SETTINGS.map((o, i) => `<div class="settings-row${o.touch ? ' touch-row' : ''}"><span id="set-${o.k}">${o.label}</span><button class="btn opt" data-act="opt" data-k="${o.k}" data-r="${i}" data-c="0" aria-describedby="set-${o.k}"><span class="arw" data-d="-1" aria-hidden="true">&#9664;</span><span class="v"></span><span class="arw" data-d="1" aria-hidden="true">&#9654;</span></button></div>`).join('')}
   <p class="diff-note"></p>
   <div class="sep"></div><button class="btn small" data-act="back">Back</button>
 </div></div>
@@ -431,7 +450,7 @@ export class UI {
   renderHowTo() {
     const k = (a) => this.keyHtml(a);
     const t = this.game.settings.toggles;
-    const sprint = t.sprint ? `Sprint (${k('sprint')} switches it on and off)` : `Hold ${k('sprint')}`;
+    const sprint = this.game.sprintToggles() ? `Sprint (${k('sprint')} switches it on and off)` : `Hold ${k('sprint')}`;
     const parry = t.block ? `press ${k('block')} just before it lands to raise your guard and parry; press it again to lower it` : `tap ${k('block')} just before it lands to parry and counter`;
     this.$('.howto').innerHTML = `
   <p>${sprint} and run at a wall to climb it; at a ledge press ${k('forward')} or ${k('jump')} to pull up. Sprint off a roof edge to leap to the next rooftop automatically. Land in hay to break a fall and hide.</p>
@@ -562,7 +581,7 @@ export class UI {
     this.setClass('sight', h.sight, 'on', g.sightOn);
     if (g.settings.fps) this.setText('fps', h.fps, `${Math.round(g.loop.fps)} fps`);
     else this.setText('fps', h.fps, '');
-    this.setClass('lh', h.lockhint, 'on', g.state === 'playing' && !g.input.locked && g.wantLockHint);
+    this.setClass('lh', h.lockhint, 'on', g.state === 'playing' && !g.input.locked && g.wantLockHint && !g.input.touchActive);
 
     this.updateWaypoint(obj);
     this.updateMarkers(dt);
@@ -912,8 +931,18 @@ export class UI {
     const h = this.h.hint;
     h.innerHTML = html;
     h.classList.add('on');
+    this.h.hud.classList.add('hinting'); // on touch screens the hint takes the objective's place
     clearTimeout(this.hintTimer);
-    this.hintTimer = setTimeout(() => h.classList.remove('on'), seconds * 1000);
+    this.hintTimer = setTimeout(() => { h.classList.remove('on'); this.h.hud.classList.remove('hinting'); }, seconds * 1000);
+  }
+
+  /** Menus offer full screen on touch devices that allow it. */
+  syncFullscreen() {
+    const show = fullscreenAvailable() && (touchFirst() || !!this.game.touch?.active);
+    for (const b of this.root.querySelectorAll('[data-act="fullscreen"]')) {
+      b.hidden = !show;
+      b.textContent = isFullscreen() ? 'Leave full screen' : 'Full screen';
+    }
   }
 
   // ------------------------------------------------------------ screens
@@ -925,7 +954,9 @@ export class UI {
     if (id === 'controls') {
       this.refreshBindings();
       this.setStatus('');
+      this.$('.bind-scroll').scrollTop = 0;
     }
+    if (id === 'title' || id === 'pause') this.syncFullscreen();
     if (id === 'map') this.drawBigMap();
     if (id === 'upgrades') this.renderUpgrades();
     if (id === 'settings') this.syncSettings();
@@ -937,10 +968,8 @@ export class UI {
     if (id === 'title') {
       const cont = this.$('[data-act="continue"]');
       cont.style.display = this.game.hasSave() ? '' : 'none';
-      // touch-only devices (no mouse) can't play without a gamepad
-      let touchOnly = false;
-      try { touchOnly = matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches; } catch (_) { /* old browser */ }
-      this.$('#screen-title .device-note').hidden = !touchOnly;
+      // phones and tablets: how the touch controls work
+      this.$('#screen-title .device-note').hidden = !touchFirst() || this.game.settings.touch === 'off';
     }
     this.updateFocus();
   }
@@ -1044,11 +1073,15 @@ export class UI {
     const btns = this.visibleButtons();
     btns.forEach((b, i) => b.classList.toggle('focus', i === this.focusIdx));
     const f = btns[this.focusIdx];
-    if (f && this.screen === 'controls') f.scrollIntoView({ block: 'nearest' });
+    // keyboard and gamepad focus scrolls into view; on touch the screen stays where the finger left it
+    if (f && this.screen === 'controls' && this.game.input.lastDevice !== 'touch') f.scrollIntoView({ block: 'nearest' });
   }
 
   syncSettings() {
     const s = this.game.settings;
+    // touch settings only where there is a touch screen
+    const touch = touchCapable() || !!this.game.touch?.active;
+    for (const r of this.root.querySelectorAll('.settings-row.touch-row')) r.hidden = !touch;
     for (const b of this.root.querySelectorAll('.btn.opt')) {
       const o = SETTINGS.find((x) => x.k === b.dataset.k);
       const v = s[o.k];

@@ -147,8 +147,8 @@ export class Player {
   st_ground(dt) {
     const input = this.input;
     const md = this.moveDir(this._md || (this._md = {}));
-    // sneak: a press switches it (default) or it lasts while the key is held (setting)
-    if (this.game.settings?.toggles?.sneak === false) this.sneaking = input.held('sneak');
+    // sneak: a press switches it (default) or it lasts while the key is held (setting; never on touch)
+    if (this.game.settings?.toggles?.sneak === false && !input.touchActive) this.sneaking = input.held('sneak');
     else if (input.pressed('sneak')) this.sneaking = !this.sneaking;
     if (input.isToggle('sprint') && input.held('sprint')) {
       // toggled sprint ends when the player starts sneaking or stops moving

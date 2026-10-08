@@ -7,9 +7,13 @@
 // Every action is remappable: it has two keyboard/mouse slots and one gamepad
 // slot. A code can belong to only one action. Escape always pauses and can't
 // be bound, since it also cancels remapping and releases the mouse.
+//
+// The on-screen touch controls (game/touch.js) feed the same queue: their
+// buttons press actions with codes of their own, and their stick and look
+// drags are timestamped the same way.
 
 /** Event time on the performance.now() clock (falls back if a browser reports another clock). */
-function stamp(e) {
+export function stamp(e) {
   const now = performance.now();
   const t = e && e.timeStamp;
   return t > 0 && Math.abs(now - t) < 1000 ? Math.min(t, now) : now;
@@ -51,6 +55,17 @@ export const DEFAULT_SLOTS = {
 
 /** Bindings that always work and can't be changed. */
 const FIXED = { pause: ['Escape'] };
+/** Touch buttons press actions with these codes; they can't be remapped and aren't saved. */
+export const TOUCH = 'Touch:';
+const TOUCH_ACTS = new Map(Object.keys(DEFAULT_SLOTS).map((a) => [TOUCH + a, [a]]));
+/** What hints call each action while the touch controls are in use. */
+const TOUCH_NAMES = {
+  forward: 'Stick up', back: 'Stick down', left: 'Stick left', right: 'Stick right',
+  sprint: 'Sprint', jump: 'Jump', sneak: 'Sneak', attack: 'Attack', heavy: 'Heavy', block: 'Block', dodge: 'Dodge',
+  lock: 'Lock', interact: 'Interact', sight: 'Sight', cast: 'Sigil', crossbow: 'Crossbow', tonic: 'Tonic',
+  sigilNext: 'Sigil icons', sigilPrev: 'Sigil icons', sigil1: 'Sigil icons', sigil2: 'Sigil icons', sigil3: 'Sigil icons', sigil4: 'Sigil icons', sigil5: 'Sigil icons',
+  lookLeft: 'Drag', lookRight: 'Drag', lookUp: 'Drag', lookDown: 'Drag', map: 'Minimap', pause: 'Pause',
+};
 /** Codes that can't be bound: Escape cancels remapping; the rest belong to the OS or browser. */
 export const RESERVED = new Set(['Escape', 'MetaLeft', 'MetaRight', 'OSLeft', 'OSRight', 'F11', 'F12', 'Unidentified', '']);
 export const PAD_SLOT = 2;
@@ -130,7 +145,10 @@ export class Input {
     this.locked = false;
     this.enabled = true;
     this.pad = { lx: 0, ly: 0, rx: 0, ry: 0, connected: false, buttons: new Array(17).fill(false) };
-    this.lastDevice = 'kbm';
+    this.stick = { x: 0, y: 0 }; // on-screen stick as of the last simulated tick (x right, y forward)
+    this.stickQueue = []; // flat triples: x, y, time
+    this.touchActive = false; // the on-screen touch controls are in use (no pointer lock then)
+    this.lastDevice = 'kbm'; // 'kbm', 'pad' or 'touch': which names hints use
     this.listeners = [];
     this.anyKeyCallbacks = [];
     this.toggles = new Set(); // actions that one press switches on and the next press switches off
@@ -230,13 +248,14 @@ export class Input {
 
   clearLatches() { for (const a of this.toggles) this.unlatch(a); }
 
-  /** True while a key bound to `action` is physically down (ignores toggle state). */
-  keyHeld(action) { return this.bindings[action].some((c) => this.logical.has(c)); }
+  /** True while a key bound to `action` (or its touch button) is physically down (ignores toggle state). */
+  keyHeld(action) { return this.bindings[action].some((c) => this.logical.has(c)) || this.logical.has(TOUCH + action); }
 
-  /** Name of the key that triggers `action` on `device` ('kbm' or 'pad'); '' when nothing is bound. */
+  /** Name of the key that triggers `action` on `device` ('kbm', 'pad' or 'touch'); '' when nothing is bound. */
   label(action, device = this.lastDevice, short = false) {
     const s = this.slots[action];
     if (!s) return '';
+    if (device === 'touch') return TOUCH_NAMES[action] || '';
     let code = device === 'pad' ? s[PAD_SLOT] : (s[0] || s[1]);
     if (!code && FIXED[action] && device !== 'pad') code = FIXED[action][0];
     return keyLabel(code, short, this.layout);
@@ -258,7 +277,8 @@ export class Input {
         return;
       }
       if (e.repeat) { if (blocks(e.code) && (this.locked || this.gameActive)) e.preventDefault(); return; }
-      if (this.lastDevice !== 'kbm') { this.lastDevice = 'kbm'; this.onLabelsChanged?.(); }
+      // after touch, only a key that does something counts as switching to the keyboard (not a phone's volume keys)
+      if (this.lastDevice !== 'touch' || this.codeToActions.has(e.code)) this.setDevice('kbm');
       // a press the menus act on (resume, close the map, select) is not also fed to gameplay
       let used = false;
       for (const cb of this.anyKeyCallbacks) if (cb(e.code)) used = true;
@@ -331,7 +351,7 @@ export class Input {
   }
 
   requestLock() {
-    if (this.locked) return;
+    if (this.locked || this.touchActive) return;
     try {
       const p = this.target.requestPointerLock && this.target.requestPointerLock({ unadjustedMovement: true });
       if (p && p.catch) p.catch(() => {
@@ -359,6 +379,26 @@ export class Input {
 
   releaseAll() {
     for (const code of [...this.physical]) this._raw(code, false);
+    if (this.stick.x || this.stick.y || this.stickQueue.length) this.setStick(0, 0);
+  }
+
+  /** Which names hints use for controls: 'kbm', 'pad' or 'touch'. */
+  setDevice(device) {
+    if (this.lastDevice === device) return;
+    this.lastDevice = device;
+    this.onLabelsChanged?.();
+  }
+
+  /** The on-screen stick moved to (x right, y forward; length <= 1) at `time`; applied from the tick it happened in. */
+  setStick(x, y, time = performance.now()) {
+    this.stickQueue.push(x, y, time);
+  }
+
+  /** Camera look from a touch drag, in mouse-pixel units (the camera applies sensitivity and invert). */
+  addLook(dx, dy) {
+    if (!this.enabled) return;
+    this.mouseDX += dx;
+    this.mouseDY += dy;
   }
 
   /**
@@ -375,7 +415,7 @@ export class Input {
       if (q[i + 2] > realTime) break;
       const code = q[i], down = q[i + 1];
       if (down) this.logical.add(code); else this.logical.delete(code);
-      const acts = this.codeToActions.get(code);
+      const acts = this.codeToActions.get(code) || TOUCH_ACTS.get(code);
       if (!acts) continue;
       for (const a of acts) {
         const st = this.actions[a];
@@ -387,15 +427,25 @@ export class Input {
         } else if (down) {
           if (!st.down) { st.pressedTick = this.tickIndex; st.pressedAt = simTime; }
           st.down = true;
-        } else {
+        } else if (!this.keyHeld(a)) {
           // only release when no other bound code is still held
-          const still = this.bindings[a].some((c) => this.logical.has(c));
-          if (!still) { st.down = false; st.releasedAt = simTime; }
+          st.down = false;
+          st.releasedAt = simTime;
         }
       }
     }
     if (i >= q.length) q.length = 0;
     else if (i > 0) q.splice(0, i);
+    // on-screen stick: its position as of the moment this tick stands for
+    const sq = this.stickQueue;
+    let j = 0;
+    for (; j < sq.length; j += 3) {
+      if (sq[j + 2] > realTime) break;
+      this.stick.x = sq[j];
+      this.stick.y = sq[j + 1];
+    }
+    if (j >= sq.length) sq.length = 0;
+    else if (j > 0) sq.splice(0, j);
   }
 
   /** Pressed during the current tick. */
@@ -410,7 +460,7 @@ export class Input {
   consume(a) { this.actions[a].consumedAt = this.time; }
   releasedSince(a, t) { return this.actions[a].releasedAt >= t; }
 
-  /** Movement vector from keys + left stick, length <= 1. x = right, y = forward. */
+  /** Movement vector from keys + left stick + on-screen stick, length <= 1. x = right, y = forward. */
   moveVector(out) {
     let x = 0, y = 0;
     const a = this.actions;
@@ -424,6 +474,8 @@ export class Input {
       const lx = this.pad.lx, ly = -this.pad.ly;
       if (Math.hypot(lx, ly) > Math.hypot(x, y)) { x = lx; y = ly; }
     }
+    const tx = this.stick.x, ty = this.stick.y;
+    if ((tx || ty) && Math.hypot(tx, ty) > Math.hypot(x, y)) { x = tx; y = ty; }
     out.x = x; out.y = y;
     return out;
   }

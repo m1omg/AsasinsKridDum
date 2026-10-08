@@ -472,10 +472,10 @@ const C = {
   st_attack(dt) {
     const input = this.input;
     let def = this.attackDef;
-    // charging a strong attack -> Rend
+    // charging a strong attack -> Rend: held past the first moments, it charges for as long as it's held
     if (this.attackKind === 'heavy' && this.charging) {
       const holding = input.held('heavy') || (input.held('attack') && input.keyHeld('sprint'));
-      if (holding && this.stateTime > 0.18) {
+      if (holding && (this.chargeT > 0 || this.stateTime > 0.18)) {
         this.chargeT += dt;
         this.anim = { clip: 'rend', t: 0, fast: true };
         if (this.chargeT > 0.25 && Math.random() < 0.6) {
@@ -489,15 +489,18 @@ const C = {
         else { const md = this.moveDir(this._mdc || (this._mdc = {})); if (md.len > 0.3) this.yaw = dampAngle(this.yaw, Math.atan2(md.x, md.z), 8, dt); }
         return this.integrateCombatMove(dt);
       }
-      this.charging = false;
-      if (this.rendReady) {
-        this.rendReady = false;
-        this.attackDef = def = REND;
-        this.anim = { clip: 'h1', t: 0, rate: 1 / REND.dur, fast: true };
-        this.stateTime = 0;
-        this.lungeDist = REND.lunge;
-        const tgt = this.lockTarget && !this.lockTarget.dead ? this.lockTarget : this.bestTarget(6, 1.0);
-        if (tgt) { this.yaw = yawTo(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z); this.lungeDist = clamp(this.distTo(tgt) - (tgt.radius + 0.9), 0, 5); }
+      // let go: the strike goes ahead, as Rend if fully charged (still held: the windup continues)
+      if (!holding) {
+        this.charging = false;
+        if (this.rendReady) {
+          this.rendReady = false;
+          this.attackDef = def = REND;
+          this.anim = { clip: 'h1', t: 0, rate: 1 / REND.dur, fast: true };
+          this.stateTime = 0;
+          this.lungeDist = REND.lunge;
+          const tgt = this.lockTarget && !this.lockTarget.dead ? this.lockTarget : this.bestTarget(6, 1.0);
+          if (tgt) { this.yaw = yawTo(this.pos.x, this.pos.z, tgt.pos.x, tgt.pos.z); this.lungeDist = clamp(this.distTo(tgt) - (tgt.radius + 0.9), 0, 5); }
+        }
       }
     }
     const u = this.stateTime / def.dur;

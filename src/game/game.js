@@ -20,6 +20,7 @@ import { Director } from './director.js';
 import { Pickups } from './pickups.js';
 import { Interactions, Snares } from './interactions.js';
 import { UI, UPGRADES } from './ui.js';
+import { TouchControls, toggleFullscreen } from './touch.js';
 import { clamp, damp } from '../core/math.js';
 
 installCombat();
@@ -65,6 +66,10 @@ export class Game {
     this.input.setSlots(this.settings.bindings);
     this.applyToggles();
     this.input.onLabelsChanged = () => this.ui.refreshKeyLabels();
+    // on-screen stick and buttons for phones and tablets
+    this.touch = new TouchControls(this, uiRoot);
+    this.touch.setSize(this.settings.touchSize);
+    this.touch.setMode(this.settings.touch);
     this.ui.refreshKeyLabels();
     this.difficulty = DIFFICULTY[this.settings.difficulty] || DIFFICULTY.medium;
     this.progress = freshProgress();
@@ -81,7 +86,8 @@ export class Game {
   // ------------------------------------------------------------ settings
   loadSettings() {
     // toggles: true = one press switches the action on and the next switches it off; false = hold the key
-    const def = { sens: 1, invertY: false, fov: 65, master: 0.8, music: 0.55, sfx: 0.9, quality: 'medium', difficulty: 'medium', shake: true, dmgNumbers: true, fps: false, bindings: null, toggles: { sprint: false, block: false, sneak: true } };
+    // touch: on-screen controls 'auto' (on touch screens), 'on' or 'off'; touchSens: look speed; touchSize: button size
+    const def = { sens: 1, invertY: false, fov: 65, master: 0.8, music: 0.55, sfx: 0.9, quality: 'medium', difficulty: 'medium', shake: true, dmgNumbers: true, fps: false, bindings: null, toggles: { sprint: false, block: false, sneak: true }, touch: 'auto', touchSens: 1, touchSize: 1 };
     const s = storage(() => JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null'));
     // mobile / small GPUs start on low quality
     if (!s && (window.innerWidth < 900 || /Mobi|Android/i.test(navigator.userAgent))) def.quality = 'low';
@@ -97,7 +103,7 @@ export class Game {
   setSetting(k, v) {
     const s = this.settings;
     if (k === 'invertY' || k === 'shake' || k === 'dmgNumbers' || k === 'fps') v = v === true || v === '1' || v === 1;
-    else if (k === 'quality' || k === 'difficulty') v = String(v);
+    else if (k === 'quality' || k === 'difficulty' || k === 'touch') v = String(v);
     else v = Number(v);
     s[k] = v;
     this.applySettings();
@@ -121,13 +127,20 @@ export class Game {
 
   applyToggles() {
     const t = this.settings.toggles;
-    this.input.setToggle('sprint', t.sprint);
+    // a thumb on the touch stick can't also hold Sprint, so on touch it always toggles
+    this.input.setToggle('sprint', t.sprint || this.usingTouch());
     this.input.setToggle('block', t.block);
     // sneak is a gameplay toggle already; the player reads settings.toggles.sneak directly
   }
 
   /** Key name for hints, as bold HTML; follows the player's bindings and device. */
   key(action) { return this.ui.keyHtml(action); }
+
+  /** The touch controls are in use (Sprint and Sneak then toggle, whatever the key settings say). */
+  usingTouch() { return !!this.touch?.active; }
+
+  /** Sprint switches on and off with a press (setting, or touch controls). */
+  sprintToggles() { return this.settings.toggles.sprint || this.usingTouch(); }
 
   applySettings() {
     const s = this.settings;
@@ -138,6 +151,8 @@ export class Game {
       this.camera.shakeEnabled = s.shake;
     }
     this.audio.setVolumes({ master: s.master, music: s.music, sfx: s.sfx });
+    this.touch?.setSize(s.touchSize);
+    this.touch?.setMode(s.touch);
     this.difficulty = DIFFICULTY[s.difficulty] || DIFFICULTY.medium;
     if (this.director) {
       this.director.maxMelee = this.difficulty.melee;
@@ -250,7 +265,7 @@ export class Game {
     this.wantLockHint = true;
     if (this.tutorialStep === 0) {
       this.ui.banner('VELLANO', 'The city burns. The Creed hunts.');
-      setTimeout(() => this.ui.hint(`${this.settings.toggles.sprint ? `Press ${this.key('sprint')} to sprint, and again to walk.` : `Hold ${this.key('sprint')} to sprint.`} Run at a wall to climb it, and leap gaps between rooftops automatically.`, 9), 2500);
+      setTimeout(() => this.ui.hint(`${this.sprintToggles() ? `Press ${this.key('sprint')} to sprint, and again to walk.` : `Hold ${this.key('sprint')} to sprint.`} Run at a wall to climb it, and leap gaps between rooftops automatically.`, 9), 2500);
     }
   }
 
@@ -504,6 +519,7 @@ export class Game {
     });
     this.input.anyKeyCallbacks.push((code) => this.menuKey(code));
     document.addEventListener('visibilitychange', () => { if (document.hidden && this.state === 'playing') this.pause(); });
+    for (const ev of ['fullscreenchange', 'webkitfullscreenchange']) document.addEventListener(ev, () => this.ui.syncFullscreen());
   }
 
   pause(screen = 'pause') {
@@ -565,6 +581,7 @@ export class Game {
       case 'resetBinds': ui.resetBindings(); break;
       case 'holdMode': ui.switchHoldMode(btn); break;
       case 'settings': ui.show('settings'); break;
+      case 'fullscreen': toggleFullscreen(); break;
       case 'back': ui.show(this.state === 'title' ? 'title' : 'pause'); break;
       case 'title': this.toTitle(); break;
       case 'respawn': this.respawn(); break;
@@ -764,6 +781,7 @@ export class Game {
     this.renderer.updateShadow(this.focus);
     this.renderer.render();
     if (this.state === 'playing' || this.state === 'paused') this.ui.update(dt);
+    this.touch.update();
     this.updateMusic();
     if (this.state === 'playing') this.updateAmbience();
   }

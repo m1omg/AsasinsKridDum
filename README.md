@@ -22,7 +22,7 @@ npm run dev      # dev server with hot reload, then open the printed URL
 npm run build    # writes the single-file game to dist/index.html
 ```
 
-You need a keyboard and mouse or a gamepad; touch screens aren't supported. Click the game window to capture the mouse. `Esc` pauses. Progress auto-saves at viewpoints, chests and rifts (stored in your browser's `localStorage`).
+Play with a keyboard and mouse, a gamepad, or the on-screen [touch controls](#touch-controls) on a phone or tablet. With a mouse, click the game window to capture it. `Esc` pauses. Progress auto-saves at viewpoints, chests and rifts (stored in your browser's `localStorage`).
 
 ## Controls
 
@@ -51,6 +51,18 @@ Every control can be changed in the game (see [Changing controls](#changing-cont
 | Pause | `Esc` / `P` | Start |
 
 The camera keys also help if mouse capture isn't available, for example inside an embedded frame.
+
+### Touch controls
+On a phone or tablet the game shows on-screen controls. It plays best with the screen sideways.
+
+- **Move**: put your left thumb down anywhere in the lower left. The stick appears under it and follows your thumb; push it to the rim to run.
+- **Look**: drag anywhere else on the screen.
+- **Right thumb**, around **Attack**: **Jump** (climb, leap, roll in a fight), **Dodge**, **Block** (hold it, or tap it just before a strike lands to parry), **Interact**, **Heavy** (hold it to charge *Rend*), **Sigil**, **Crossbow** and **Lock** (tap again to switch target).
+- **Interact** lights up and names what it will do: assassinate, Glory Kill, open a chest, hide in hay, synchronize, Leap of Faith. Tapping the prompt in the middle of the screen does the same.
+- **Left thumb**, above the stick: **Sprint** and **Sneak** switch on and off with a tap (sprinting stops when you stop moving), and **Tonic** drinks a Blood Tonic.
+- **Sight** (next to the minimap) switches Ashen Sight. Tap a Sigil icon to choose that Sigil, the minimap to open the map, and the emblem to pause.
+- In **Settings**: **Touch controls** *Auto* (shown on touch screens; a key, mouse click or gamepad hides them until you touch the screen again), *On* or *Off*, plus **Touch look speed** and **Touch button size**.
+- **Full screen** is in the title and pause menus where the browser allows it. Safari on iPhone doesn't let pages go full screen, but the game opens without the browser bars when you add it to the Home Screen.
 
 ### Changing controls
 Open **Controls** from the title screen or from the pause menu (`Esc`), at any point in a game.
@@ -128,7 +140,7 @@ Ashen Runes come from chests, viewpoints, closed rifts and every third hidden Cr
 ## How it's made
 
 - **Engine**: [Three.js](https://threejs.org/) with custom systems: an AABB/slope collision world with a spatial hash, a kinematic character controller, a nav grid with A* and a flow field, procedural animation, and particles. Post-processing adds bloom, color grading, and the Ashen Sight x-ray pass.
-- **Refresh-rate independent**: game logic runs on a fixed 60 Hz timestep and rendering interpolates between steps. Input events carry timestamps and are applied on the step in which they happened, hit-stop and slow motion are timed in real time inside the frame, and all smoothing is exponential in real time. A scripted 20-second fight simulates bit-identically at 30, 60, 144 and 240 Hz and with uneven frame pacing.
+- **Refresh-rate independent**: game logic runs on a fixed 60 Hz timestep and rendering interpolates between steps. Input events carry timestamps and are applied on the step in which they happened, hit-stop and slow motion are timed in real time inside the frame, and all smoothing is exponential in real time. A scripted 20-second fight simulates bit-identically at 30, 60, 144 and 240 Hz and with uneven frame pacing, both from the keyboard and through the touch controls (whose buttons and timestamped stick positions feed the same input queue).
 - **Procedural**:
   - The city: street grid, buildings with ledges and gable roofs, enterable houses with stairs and window openings, the cathedral, towers, beams and props.
   - Animation: every character is animated procedurally (gait, climbing, combat clips, recoils, death) on a small shared skeleton. Feet are planted with two-bone IK: a foot stays fixed on the ground while it carries weight, then swings to a foothold predicted from the character's velocity, so nobody glides. Footholds follow stairs and slopes, standing characters step their feet around when they turn, and the stride length matches each character's legs.
@@ -147,7 +159,7 @@ src/core/               loop (fixed timestep), input (KB/mouse/gamepad), audio, 
 src/render/             renderer + post FX, materials, sky, particles/lights/trails, mesh builder
 src/world/              collision world, procedural city, navigation grid
 src/entities/           player controller + combat, rigs/models/animation, demons, projectiles
-src/game/               game state, director (spawns, arenas, boss), camera, UI, pickups, interactions
+src/game/               game state, director (spawns, arenas, boss), camera, UI, touch controls, pickups, interactions
 assets/textures/        processed Higgsfield textures (webp)
 assets/models/          generated characters: rigged mesh (.bin), texture and glow map (webp)
 tools/                  texture processing and character conversion scripts
